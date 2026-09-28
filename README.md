@@ -43,7 +43,8 @@ the percentage thresholds apply. A manual market price override is used as-is.
 - **Prices** — TCGplayer market prices from the free daily dumps at
   [tcgcsv.com](https://tcgcsv.com) (TCGplayer has no public price API). A local
   product index of every Pokémon product powers card search; build it once from
-  the Settings tab. Any watch can also use a manual market price override.
+  the Settings tab. Any watch can also use a manual market price override, set when adding it or
+  changed/cleared later via "Market price" in the watch list.
 - **Notifications** — a Discord webhook URL, set in the Settings tab (stored in
   the database) or via `DISCORD_WEBHOOK_URL`. Each alert carries direct action links:
   **Buy It Now** goes straight into eBay checkout (`/atc/binctr?item=…`) and
