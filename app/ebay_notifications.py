@@ -42,6 +42,12 @@ def configured() -> bool:
     return bool(verification_token() and endpoint_url())
 
 
+def forward_to_discord() -> bool:
+    """eBay sends a deletion notice for every account it closes, so this is off
+    by default; the endpoint still acks them."""
+    return get_setting("forward_deletion_notices") == "1"
+
+
 def generate_token() -> str:
     """A token in eBay's allowed range (32-80 chars, alphanumeric plus _-)."""
     return secrets.token_urlsafe(48).replace("=", "")[:64]

@@ -67,6 +67,7 @@ class SettingsIn(BaseModel):
     discord_webhook_url: str | None = None
     ebay_verification_token: str | None = None
     ebay_notification_endpoint: str | None = None
+    forward_deletion_notices: bool | None = None
 
 
 @app.get("/api/health")
@@ -171,6 +172,7 @@ def read_settings() -> dict[str, Any]:
         "ebay_source": "browse_api" if get_settings().ebay_configured else "html_scrape",
         "ebay_verification_token": ebay_notifications.verification_token(),
         "ebay_notification_endpoint": ebay_notifications.endpoint_url(),
+        "forward_deletion_notices": ebay_notifications.forward_to_discord(),
     }
 
 
@@ -182,6 +184,8 @@ def write_settings(payload: SettingsIn) -> dict[str, Any]:
         set_setting("ebay_verification_token", payload.ebay_verification_token.strip())
     if payload.ebay_notification_endpoint is not None:
         set_setting("ebay_notification_endpoint", payload.ebay_notification_endpoint.strip())
+    if payload.forward_deletion_notices is not None:
+        set_setting("forward_deletion_notices", "1" if payload.forward_deletion_notices else "0")
     return read_settings()
 
 
@@ -224,7 +228,8 @@ async def ebay_notification(request: Request) -> Response:
     except ValueError:
         payload = {}
     log.info("eBay notification: %s", payload)
-    notifier.send_notice(ebay_notifications.summarize(payload))
+    if ebay_notifications.forward_to_discord():
+        notifier.send_notice(ebay_notifications.summarize(payload))
     return Response(status_code=204)
 
 

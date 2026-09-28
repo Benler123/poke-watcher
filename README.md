@@ -51,8 +51,9 @@ endpoint. This app serves it at `/ebay/notifications`:
 
 - `GET  /ebay/notifications?challenge_code=…` returns
   `{"challengeResponse": sha256(challengeCode + verificationToken + endpoint)}`
-- `POST /ebay/notifications` acks with 204 and forwards a summary of the
-  deletion notice to the Discord webhook.
+- `POST /ebay/notifications` acks with 204. Forwarding a summary of each notice
+  to Discord is opt-in ("Forward deletion notices to Discord" in Settings) —
+  eBay sends one for every account it closes, so it is off by default.
 
 Deploy the app somewhere public, then in **Settings → eBay account deletion
 endpoint** paste that public URL, hit **Generate** for a token, save, and

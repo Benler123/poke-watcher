@@ -238,6 +238,7 @@ async function loadSettings() {
     : "No webhook set — alerts will only appear in this UI.";
   $("#notify-endpoint").value = settings.ebay_notification_endpoint || "";
   $("#notify-token").value = settings.ebay_verification_token || "";
+  $("#notify-forward").checked = Boolean(settings.forward_deletion_notices);
   $("#notify-status").textContent =
     settings.ebay_notification_endpoint && settings.ebay_verification_token
       ? "Endpoint ready — register it on developer.ebay.com/my/keys."
@@ -269,6 +270,7 @@ $("#save-notify").addEventListener("click", async () => {
     body: JSON.stringify({
       ebay_notification_endpoint: $("#notify-endpoint").value.trim(),
       ebay_verification_token: $("#notify-token").value.trim(),
+      forward_deletion_notices: $("#notify-forward").checked,
     }),
   });
   loadSettings();
