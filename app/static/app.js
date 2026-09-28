@@ -308,7 +308,7 @@ async function loadAlerts() {
         <div class="sub">
           ${money(alert.price)} + ${alert.shipping ? money(alert.shipping) : "free"} shipping =
           <strong>${money(alert.total_price)}</strong> vs market ${money(alert.market_price)}
-          · ${alert.watch_label} · ${alert.created_at} UTC
+          · watch #${alert.watch_id} ${alert.watch_label} · ${alert.created_at} UTC
           ${alert.notified ? "" : " · <span class=\"tag err\">not sent to Discord</span>"}
         </div>
         ${alert.item_id ? `<div class="sub">

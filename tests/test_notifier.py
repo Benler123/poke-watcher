@@ -2,7 +2,7 @@ from app.ebay import Listing
 from app.notifier import build_embed
 from app.rules import UNDER_MARKET, Match
 
-WATCH = {"label": "Charizard ex 199/165"}
+WATCH = {"id": 7, "label": "Charizard ex 199/165"}
 
 
 def _listing(**overrides) -> Listing:
@@ -39,3 +39,8 @@ def test_embed_keeps_canonical_listing_url():
     embed = build_embed(listing, WATCH, Match(UNDER_MARKET, 0.9), 220.0)
     assert embed["url"] == listing.url
     assert f"[View listing]({listing.url})" in _actions(listing)
+
+
+def test_embed_footer_names_the_watch():
+    embed = build_embed(_listing(), WATCH, Match(UNDER_MARKET, 0.9), 220.0)
+    assert embed["footer"]["text"] == "Watch #7: Charizard ex 199/165"
