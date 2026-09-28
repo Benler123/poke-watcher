@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from app import grading
 from app.ebay import Listing
 
 UNDER_MARKET = "under_market"
@@ -35,6 +36,8 @@ def evaluate(listing: Listing, watch: Mapping[str, Any], market_price: float) ->
     if market_price <= 0 or not listing.buy_it_now or listing.price <= 0:
         return None
     if _excluded(listing.title, watch.get("exclude_terms") or ""):
+        return None
+    if not grading.matches(listing.title, watch):
         return None
 
     total = listing.total_price

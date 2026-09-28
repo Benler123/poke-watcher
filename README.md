@@ -13,6 +13,17 @@ Two alert rules per watched card:
 Each listing alerts once per watch. The web UI shows the watchlist, per-card
 thresholds, and every alert that has fired.
 
+## Graded cards
+
+A watch can target a grade (PSA / BGS / CGC / SGC / ACE / TAG plus a number, or
+"raw only"). The grade is appended to the eBay query, and listing titles are
+matched against it — `PSA 10`, `psa10` and `PSA-10` all count, `PSA 9` and raw
+copies do not; a raw watch rejects anything that looks slabbed.
+
+tcgcsv prices are for raw cards, so a graded watch multiplies the market price
+by `grade_price_multiplier` (e.g. `4` if PSA 10 copies sell for ~4× raw) before
+the percentage thresholds apply. A manual market price override is used as-is.
+
 ## Data sources
 
 - **Listings** — eBay [Browse API](https://developer.ebay.com/api-docs/buy/browse/overview.html),

@@ -54,6 +54,35 @@ def test_watch_lifecycle_and_alerting(app_client, monkeypatch):
     assert app_client.get("/api/watches").json() == []
 
 
+def test_graded_watch_searches_and_filters_by_grade(app_client, monkeypatch):
+    watch = app_client.post(
+        "/api/watches",
+        json={
+            "label": "Charizard VMAX PSA 10",
+            "ebay_query": "charizard vmax 020/189",
+            "manual_market_price": 200.0,
+            "grade_company": "psa",
+            "grade_value": "10.0",
+            "grade_price_multiplier": 4.0,
+        },
+    ).json()
+    assert (watch["grade_company"], watch["grade_value"]) == ("PSA", "10")
+
+    stub = StubEbay(
+        [
+            Listing("1", "Charizard VMAX 020/189 PSA 10", "https://ebay.com/itm/1", 150.0),
+            Listing("2", "Charizard VMAX 020/189 PSA 9", "https://ebay.com/itm/2", 150.0),
+            Listing("3", "Charizard VMAX 020/189 raw NM", "https://ebay.com/itm/3", 150.0),
+        ]
+    )
+    monkeypatch.setattr(monitor.ebay, "get_client", lambda: stub)
+    monkeypatch.setattr(monitor.notifier, "send_alert", lambda *args: True)
+
+    alerts = app_client.post(f"/api/watches/{watch['id']}/check").json()["alerts"]
+    assert [alert["listing_id"] for alert in alerts] == ["1"]
+    assert stub.queries[0][0] == "charizard vmax 020/189 PSA 10"
+
+
 def test_settings_roundtrip(app_client):
     url = "https://discord.com/api/webhooks/123/abc"
     app_client.put("/api/settings", json={"discord_webhook_url": url})

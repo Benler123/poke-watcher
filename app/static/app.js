@@ -3,6 +3,12 @@ const money = (value) => (value == null ? "—" : `$${Number(value).toFixed(2)}`
 
 let selectedCard = null;
 
+const gradeLabel = (watch) => {
+  const company = (watch.grade_company || "").toUpperCase();
+  if (company === "RAW") return "Raw (ungraded)";
+  return [company, watch.grade_value].filter(Boolean).join(" ");
+};
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -101,6 +107,24 @@ $("#card-search").addEventListener("keydown", (event) => {
   if (event.key === "Enter") searchCards();
 });
 
+function updateGradeHint() {
+  const company = $("#grade-company").value;
+  const grade = $("#grade-value").value.trim();
+  const multiplier = Number($("#grade-multiplier").value || 1);
+  if (!company || company === "RAW") {
+    $("#grade-hint").textContent =
+      company === "RAW" ? "Graded listings will be skipped." : "";
+    return;
+  }
+  $("#grade-hint").textContent =
+    `Only ${company} ${grade || "(any grade)"} listings alert. TCGplayer prices are for raw cards, ` +
+    `so set the multiplier to what this grade sells for — currently ${multiplier}x market.`;
+}
+
+["#grade-company", "#grade-value", "#grade-multiplier"].forEach((sel) =>
+  $(sel).addEventListener("input", updateGradeHint)
+);
+
 $("#cancel-watch").addEventListener("click", () => {
   selectedCard = null;
   $("#watch-form").classList.add("hidden");
@@ -121,6 +145,9 @@ $("#watch-form").addEventListener("submit", async (event) => {
     tcgplayer_url: selectedCard ? selectedCard.url : null,
     image_url: selectedCard ? selectedCard.image_url : null,
     sub_type_name: $("#sub-type").value || null,
+    grade_company: $("#grade-company").value,
+    grade_value: $("#grade-value").value.trim(),
+    grade_price_multiplier: value("grade_price_multiplier") ?? 1,
     manual_market_price: value("manual_market_price"),
     bin_max_pct_of_market: (value("bin_max_pct_of_market") ?? 100) / 100,
     offer_max_pct_of_market: (value("offer_max_pct_of_market") ?? 115) / 100,
@@ -157,7 +184,7 @@ async function loadWatches() {
       <div class="grow">
         <div class="title">${watch.label}</div>
         <div class="sub">
-          query: <code>${watch.ebay_query}</code>${watch.sub_type_name ? ` · ${watch.sub_type_name}` : ""}<br>
+          query: <code>${watch.ebay_query}</code>${watch.sub_type_name ? ` · ${watch.sub_type_name}` : ""}${gradeLabel(watch) ? ` · <span class="tag">${gradeLabel(watch)}</span>` : ""}<br>
           market ${money(market)} · alert BIN &le; ${Math.round(watch.bin_max_pct_of_market * 100)}%
           · offer &le; ${Math.round(watch.offer_max_pct_of_market * 100)}%
           · ${watch.alert_count} alerts
