@@ -22,6 +22,22 @@ comes back from the singles category; grade targeting is disabled for them, and
 the form pre-fills exclusions for opened/empty/damaged/proxy/repack/code-card
 listings.
 
+## Is the listing actually the card?
+
+eBay keyword search is fuzzy, so before the price rules a listing title has to
+survive `app/identity.py`:
+
+- non-English printings are rejected (the tcgcsv index is TCGplayer's English
+  Pokémon category, so a Japanese copy is a different product with a different
+  price);
+- lots, bundles, repacks, proxies, customs and code cards are rejected;
+- every word of the product name has to appear in the title;
+- a single also has to carry its collector number (`215/203`, `#215`,
+  `SWSH284`), its set name, or its variant wording — a bare name matches
+  reprints across sets. Sealed names are specific enough on their own.
+
+Untick **Strict title check** on a watch to fall back to keyword matching only.
+
 ## Graded cards
 
 A watch can target a grade (PSA / BGS / CGC / SGC / ACE / TAG plus a number, or

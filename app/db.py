@@ -57,6 +57,7 @@ watches = Table(
     Column("min_price", Float),
     Column("max_price", Float),
     Column("exclude_terms", Text, nullable=False, server_default=""),
+    Column("strict_match", Boolean, nullable=False, server_default=text("true")),
     Column("active", Boolean, nullable=False, server_default=text("true")),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("last_checked_at", DateTime(timezone=True)),

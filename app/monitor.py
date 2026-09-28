@@ -70,9 +70,12 @@ def check_watch(watch: dict[str, Any], client: Any, notify: bool = True) -> list
         product_type=watch.get("product_type") or ebay.SINGLE,
     )
 
+    product_id = watch.get("product_id")
+    product = tcg.get_product(int(product_id)) if product_id else None
+
     created: list[dict[str, Any]] = []
     for listing in listings:
-        match = evaluate(listing, watch, market)
+        match = evaluate(listing, watch, market, product)
         if match is None:
             continue
         if not _is_new_listing(watch["id"], listing.listing_id) or seeding:

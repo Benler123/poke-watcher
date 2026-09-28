@@ -128,3 +128,6 @@ def search_products(
         statement = statement.where(tcg_products.c.sealed.is_(product_type == SEALED))
     return db.fetch_all(statement)
 
+
+def get_product(product_id: int) -> dict[str, Any] | None:
+    return db.fetch_one(select(tcg_products).where(tcg_products.c.product_id == product_id))

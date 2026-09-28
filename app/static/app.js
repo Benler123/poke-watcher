@@ -190,6 +190,7 @@ $("#watch-form").addEventListener("submit", async (event) => {
     min_price: value("min_price"),
     max_price: value("max_price"),
     exclude_terms: form.querySelector("[name=exclude_terms]").value.trim(),
+    strict_match: form.querySelector("[name=strict_match]").checked,
     active: true,
   };
   await api("/api/watches", { method: "POST", body: JSON.stringify(payload) });

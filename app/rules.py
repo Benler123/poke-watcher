@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from app import grading
+from app import grading, identity
 from app.ebay import Listing
 
 UNDER_MARKET = "under_market"
@@ -31,13 +31,24 @@ def _excluded(title: str, exclude_terms: str) -> bool:
     return any(term.strip() and term.strip().lower() in lowered for term in exclude_terms.split(","))
 
 
-def evaluate(listing: Listing, watch: Mapping[str, Any], market_price: float) -> Match | None:
-    """Return a Match when the listing should trigger an alert."""
+def evaluate(
+    listing: Listing,
+    watch: Mapping[str, Any],
+    market_price: float,
+    product: Mapping[str, Any] | None = None,
+) -> Match | None:
+    """Return a Match when the listing should trigger an alert.
+
+    ``product`` is the watch's tcgcsv row, used to confirm the listing is
+    actually that card rather than something eBay's fuzzy search dragged in.
+    """
     if market_price <= 0 or not listing.buy_it_now or listing.price <= 0:
         return None
     if _excluded(listing.title, watch.get("exclude_terms") or ""):
         return None
     if not grading.matches(listing.title, watch):
+        return None
+    if watch.get("strict_match", True) and not identity.matches(listing.title, product):
         return None
 
     total = listing.total_price

@@ -53,6 +53,7 @@ class WatchIn(BaseModel):
     min_price: float | None = None
     max_price: float | None = None
     exclude_terms: str = ""
+    strict_match: bool = True
     active: bool = True
 
 
@@ -68,6 +69,7 @@ class WatchPatch(BaseModel):
     min_price: float | None = None
     max_price: float | None = None
     exclude_terms: str | None = None
+    strict_match: bool | None = None
     active: bool | None = None
 
 
