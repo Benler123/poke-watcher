@@ -8,7 +8,7 @@ import logging
 from typing import Any
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app import db
 from app.config import get_settings
@@ -115,12 +115,16 @@ def index_size() -> int:
 def search_products(
     query: str, limit: int = 25, product_type: str | None = None
 ) -> list[dict[str, Any]]:
-    like = f"%{query.strip().lower()}%"
-    name = func.lower(tcg_products.c.clean_name)
-    full_name = func.lower(tcg_products.c.group_name + " " + tcg_products.c.clean_name)
+    """Products whose name, set or collector number contain every query word."""
+    fields = [
+        func.lower(tcg_products.c.clean_name),
+        func.lower(tcg_products.c.group_name),
+        func.lower(func.coalesce(tcg_products.c.number, "")),
+    ]
+    words = query.lower().replace(" - ", " ").split()
     statement = (
         select(tcg_products)
-        .where(name.like(like) | full_name.like(like))
+        .where(*(or_(*(field.contains(word, autoescape=True) for field in fields)) for word in words))
         .order_by(func.length(tcg_products.c.clean_name))
         .limit(limit)
     )
