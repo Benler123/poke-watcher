@@ -96,6 +96,22 @@ def test_first_check_alerts_on_current_listings_once(app_client, monkeypatch):
     assert app_client.post(f"/api/watches/{watch['id']}/check").json()["alerts"] == []
 
 
+def test_recreated_watch_alerts_on_the_same_listings(app_client, monkeypatch):
+    body = {"label": "Umbreon VMAX", "ebay_query": "umbreon vmax 215/203", "manual_market_price": 400.0}
+    stub = StubEbay([Listing("1", "Umbreon VMAX 215/203", "https://ebay.com/itm/1", 300.0)])
+    monkeypatch.setattr(monitor.ebay, "get_client", lambda: stub)
+    monkeypatch.setattr(monitor.notifier, "send_alert", lambda *args: True)
+
+    first = app_client.post("/api/watches", json=body).json()
+    app_client.post(f"/api/watches/{first['id']}/check")
+    app_client.delete(f"/api/watches/{first['id']}")
+    assert app_client.get("/api/alerts").json() == []
+
+    second = app_client.post("/api/watches", json=body).json()
+    alerts = app_client.post(f"/api/watches/{second['id']}/check").json()["alerts"]
+    assert [(alert["watch_id"], alert["listing_id"]) for alert in alerts] == [(second["id"], "1")]
+
+
 def test_settings_roundtrip(app_client):
     url = "https://discord.com/api/webhooks/123/abc"
     app_client.put("/api/settings", json={"discord_webhook_url": url})

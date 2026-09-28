@@ -50,13 +50,13 @@ def build_embed(listing: Listing, watch: Mapping[str, Any], match: Match, market
                 "inline": True,
             },
             {"name": "Total", "value": f"${listing.total_price:,.2f}", "inline": True},
-            {"name": "TCG market", "value": f"${market_price:,.2f}", "inline": True},
+            {"name": "Market", "value": f"${market_price:,.2f}", "inline": True},
             {"name": "Difference", "value": f"{'+' if delta >= 0 else '-'}${abs(delta):,.2f}", "inline": True},
             {"name": "Best Offer", "value": "Yes" if listing.best_offer else "No", "inline": True},
             {"name": "Actions", "value": action_links(listing), "inline": False},
         ],
         "thumbnail": {"url": listing.image_url} if listing.image_url else None,
-        "footer": {"text": f"Watch: {watch.get('label', '')}{grade_suffix}"},
+        "footer": {"text": f"Watch #{watch.get('id', '?')}: {watch.get('label', '')}{grade_suffix}"},
     }
 
 
