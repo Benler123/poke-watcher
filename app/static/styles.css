@@ -92,6 +92,7 @@ button {
 }
 
 button:hover { filter: brightness(1.1); }
+button:disabled { opacity: 0.5; cursor: default; filter: none; }
 button.ghost { background: transparent; border-color: var(--border); color: var(--muted); font-weight: 500; }
 button.danger { background: transparent; border-color: #5b2b3d; color: #ff7a94; font-weight: 500; }
 
@@ -157,6 +158,9 @@ label.wide { grid-column: 1 / -1; }
 .row .sub { color: var(--muted); font-size: 12px; line-height: 1.5; }
 .row .sub a { color: var(--accent-2); }
 .row.inactive { opacity: 0.55; }
+.row .price-edit { display: flex; gap: 6px; margin-top: 8px; }
+.row .price-edit input { width: 160px; }
+.row .price-edit.hidden { display: none; }
 
 .tag {
   font-size: 11px;

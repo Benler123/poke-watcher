@@ -46,7 +46,8 @@ the percentage thresholds apply. A manual market price override is used as-is.
   automatically when the database is empty and rebuilds every
   `INDEX_REFRESH_HOURS` (default 24) so new sets appear; **Settings → Rebuild
   card index** forces a rebuild. Any watch can also use a manual market price
-  override.
+  override, set when adding it or changed/cleared later via "Market price" in
+  the watch list.
 - **Notifications** — a Discord webhook URL, set in the Settings tab (stored in
   the database) or via `DISCORD_WEBHOOK_URL`. Each alert carries direct action links:
   **Buy It Now** goes straight into eBay checkout (`/atc/binctr?item=…`) and

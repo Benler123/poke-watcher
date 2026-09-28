@@ -75,6 +75,9 @@ class WatchPatch(BaseModel):
     active: bool | None = None
 
 
+CLEARABLE_WATCH_FIELDS = {"manual_market_price"}
+
+
 class SettingsIn(BaseModel):
     discord_webhook_url: str | None = None
     ebay_verification_token: str | None = None
@@ -149,7 +152,11 @@ def post_watch(payload: WatchIn) -> dict[str, Any]:
 
 @app.patch("/api/watches/{watch_id}")
 def patch_watch(watch_id: int, payload: WatchPatch) -> dict[str, Any]:
-    data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    data = {
+        k: v
+        for k, v in payload.model_dump(exclude_unset=True).items()
+        if v is not None or k in CLEARABLE_WATCH_FIELDS
+    }
     existing = watches.get_watch(watch_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="watch not found")
@@ -157,6 +164,14 @@ def patch_watch(watch_id: int, payload: WatchPatch) -> dict[str, Any]:
     watch = watches.update_watch(watch_id, data)
     if watch is None:
         raise HTTPException(status_code=404, detail="watch not found")
+    if "manual_market_price" in data:
+        try:
+            price = monitor.resolve_market_price({**watch, "market_price": None}, force=True)
+            watches.record_market_price(watch_id, price)
+        except Exception as exc:  # noqa: BLE001 - price lookup is best effort
+            watches.record_check(watch_id, f"price lookup failed: {exc}")
+        watch = watches.get_watch(watch_id)
+        assert watch is not None
     return watch
 
 

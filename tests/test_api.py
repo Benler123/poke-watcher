@@ -96,3 +96,23 @@ def test_health_reports_sources(app_client):
     assert health["ok"] is True
     assert health["ebay_source"] in {"browse_api", "html_scrape"}
     assert health["stats"]["watches"] == 0
+
+
+def test_market_price_override_can_be_set_and_cleared(app_client, monkeypatch):
+    monkeypatch.setattr(monitor.tcg, "market_price", lambda product_id, sub_type=None: 80.0)
+    watch = app_client.post(
+        "/api/watches",
+        json={"label": "Umbreon ex", "ebay_query": "umbreon ex 161", "product_id": 42},
+    ).json()
+    assert watch["market_price"] == 80.0
+
+    overridden = app_client.patch(f"/api/watches/{watch['id']}", json={"manual_market_price": 120.0}).json()
+    assert overridden["manual_market_price"] == 120.0
+    assert overridden["market_price"] == 120.0
+
+    untouched = app_client.patch(f"/api/watches/{watch['id']}", json={"label": "Umbreon ex SIR"}).json()
+    assert untouched["manual_market_price"] == 120.0
+
+    cleared = app_client.patch(f"/api/watches/{watch['id']}", json={"manual_market_price": None}).json()
+    assert cleared["manual_market_price"] is None
+    assert cleared["market_price"] == 80.0

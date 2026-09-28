@@ -239,13 +239,21 @@ async function loadWatches() {
         <div class="title">${watch.label}</div>
         <div class="sub">
           query: <code>${watch.ebay_query}</code>${watch.product_type === "sealed" ? ` · <span class="tag">Sealed</span>` : ""}${watch.sub_type_name ? ` · ${watch.sub_type_name}` : ""}${gradeLabel(watch) ? ` · <span class="tag">${gradeLabel(watch)}</span>` : ""}<br>
-          market ${money(market)} · alert BIN &le; ${Math.round(watch.bin_max_pct_of_market * 100)}%
+          market ${money(market)}${watch.manual_market_price != null ? ` <span class="tag warn">override</span>` : ""} · alert BIN &le; ${Math.round(watch.bin_max_pct_of_market * 100)}%
           · offer &le; ${Math.round(watch.offer_max_pct_of_market * 100)}%
           · ${watch.alert_count} alerts
           ${watch.last_checked_at ? ` · checked ${watch.last_checked_at} UTC` : " · never checked"}
         </div>
         ${watch.last_error ? `<div class="sub"><span class="tag err">${watch.last_error}</span></div>` : ""}
+        <div class="price-edit hidden">
+          <input type="number" step="0.01" min="0.01" placeholder="auto from TCGplayer"
+            value="${watch.manual_market_price ?? ""}">
+          <button class="save-price">Save</button>
+          <button type="button" class="ghost clear-price"${watch.manual_market_price == null ? " disabled" : ""}>Use TCGplayer</button>
+          <button type="button" class="ghost cancel-price">Cancel</button>
+        </div>
       </div>
+      <button class="ghost edit-price">Market price</button>
       <button class="ghost check">Check</button>
       <button class="ghost toggle">${watch.active ? "Pause" : "Resume"}</button>
       <button class="danger remove">Delete</button>`;
@@ -259,6 +267,28 @@ async function loadWatches() {
         event.target.textContent = "Failed";
       }
       setTimeout(loadWatches, 1200);
+    });
+    const priceEdit = row.querySelector(".price-edit");
+    const setOverride = async (price) => {
+      await api(`/api/watches/${watch.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ manual_market_price: price }),
+      });
+      loadWatches();
+    };
+    row.querySelector(".edit-price").addEventListener("click", () => {
+      priceEdit.classList.toggle("hidden");
+      priceEdit.querySelector("input").focus();
+    });
+    row.querySelector(".cancel-price").addEventListener("click", () => priceEdit.classList.add("hidden"));
+    row.querySelector(".clear-price").addEventListener("click", () => setOverride(null));
+    row.querySelector(".save-price").addEventListener("click", () => {
+      const price = Number(priceEdit.querySelector("input").value);
+      setOverride(price > 0 ? price : null);
+    });
+    priceEdit.querySelector("input").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") row.querySelector(".save-price").click();
+      if (event.key === "Escape") priceEdit.classList.add("hidden");
     });
     row.querySelector(".toggle").addEventListener("click", async () => {
       await api(`/api/watches/${watch.id}`, {
