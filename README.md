@@ -22,8 +22,10 @@ thresholds, and every alert that has fired.
   parsing eBay search HTML, which eBay blocks from most datacenter IPs.
 - **Prices** — TCGplayer market prices from the free daily dumps at
   [tcgcsv.com](https://tcgcsv.com) (TCGplayer has no public price API). A local
-  SQLite index of every Pokémon product powers card search; build it once from
-  the Settings tab. Any watch can also use a manual market price override.
+  SQLite index of every Pokémon product powers card search. It builds
+  automatically when the database is empty and rebuilds every
+  `INDEX_REFRESH_HOURS` (default 24) so new sets appear; **Settings → Rebuild
+  card index** forces a rebuild. Any watch can also use a manual market price override.
 - **Notifications** — a Discord webhook URL, set in the Settings tab (stored in
   SQLite) or via `DISCORD_WEBHOOK_URL`. Each alert carries direct action links:
   **Buy It Now** goes straight into eBay checkout (`/atc/binctr?item=…`) and
@@ -38,9 +40,9 @@ cp .env.example .env    # fill in eBay keys (optional but recommended)
 .venv/bin/uvicorn app.main:app --reload --port 8000
 ```
 
-Open http://localhost:8000, go to **Settings → Rebuild card index** (a few
-minutes, ~20k cards), paste your Discord webhook, then add cards on the
-**Watchlist** tab. A background sweep runs every `POLL_INTERVAL_SECONDS`
+Open http://localhost:8000. The card index (~20k cards) starts building in
+the background on first launch and takes a few minutes. Paste your Discord
+webhook in **Settings**, then add cards on the **Watchlist** tab. A background sweep runs every `POLL_INTERVAL_SECONDS`
 (default 300); "Check all now" runs one immediately.
 
 ## eBay account deletion endpoint

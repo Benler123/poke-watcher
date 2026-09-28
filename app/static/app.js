@@ -37,10 +37,27 @@ async function loadHealth() {
     `${source} · ${discord}<br>${health.stats.active_watches} active watches · ` +
     `${health.stats.alerts} alerts · ${last}`;
   $("#health").textContent = JSON.stringify(health, null, 2);
+  const indexing = health.monitor.indexing;
+  const building = indexing && !indexing.complete;
   $("#index-hint").textContent = health.stats.indexed_products
     ? `${health.stats.indexed_products.toLocaleString()} cards indexed from TCGplayer.`
-    : "Card index is empty — build it in Settings, or add a watch with a manual market price.";
+    : building
+      ? "Card index is building — card search will work in a few minutes."
+      : "Card index is empty — it builds automatically, or add a watch with a manual market price.";
+  $("#index-status").textContent = indexStatus(health);
   return health;
+}
+
+function indexStatus(health) {
+  const progress = health.monitor.indexing;
+  if (progress && !progress.complete) {
+    return `Indexing set ${progress.done}/${progress.total} — ${progress.products.toLocaleString()} cards.`;
+  }
+  if (progress && progress.error) return `Last index build failed: ${progress.error}`;
+  const built = health.stats.index_built_at;
+  return built
+    ? `${health.stats.indexed_products.toLocaleString()} cards, last built ${new Date(built).toLocaleString()}.`
+    : "";
 }
 
 async function searchCards() {
@@ -50,7 +67,7 @@ async function searchCards() {
   const list = $("#card-results");
   list.innerHTML = "";
   if (!data.results.length) {
-    list.innerHTML = `<li class="empty">No cards found${data.indexed ? "" : " — the card index is empty, build it in Settings"}.</li>`;
+    list.innerHTML = `<li class="empty">No cards found${data.indexed ? "" : " — the card index is empty or still building"}.</li>`;
     return;
   }
   data.results.forEach((card) => {
@@ -285,12 +302,7 @@ $("#build-index").addEventListener("click", async () => {
   $("#index-status").textContent = "Indexing started…";
   const timer = setInterval(async () => {
     const health = await loadHealth();
-    const progress = health.monitor.indexing;
-    if (!progress) return;
-    $("#index-status").textContent = progress.complete
-      ? `Index complete — ${health.stats.indexed_products.toLocaleString()} cards.`
-      : `Indexing set ${progress.done}/${progress.total} — ${progress.products.toLocaleString()} cards.`;
-    if (progress.complete) clearInterval(timer);
+    if (!health.monitor.indexing || health.monitor.indexing.complete) clearInterval(timer);
   }, 3000);
 });
 
