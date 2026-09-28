@@ -25,6 +25,7 @@ FIELDS = (
     "min_price",
     "max_price",
     "exclude_terms",
+    "strict_match",
     "active",
 )
 

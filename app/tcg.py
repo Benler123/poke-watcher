@@ -130,6 +130,10 @@ def search_products(
     return db.fetch_all(statement)
 
 
+def get_product(product_id: int) -> dict[str, Any] | None:
+    return db.fetch_one(select(tcg_products).where(tcg_products.c.product_id == product_id))
+
+
 def refresh_price(product_id: int) -> dict[str, float | None]:
     """Fetch and cache the latest TCGplayer prices for a product's sub types."""
     row = db.fetch_one(
