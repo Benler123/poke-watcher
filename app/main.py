@@ -23,11 +23,15 @@ STATIC_DIR = Path(__file__).parent / "static"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    task = asyncio.create_task(monitor.poll_forever())
+    tasks = [
+        asyncio.create_task(monitor.poll_forever()),
+        asyncio.create_task(monitor.index_forever()),
+    ]
     try:
         yield
     finally:
-        task.cancel()
+        for task in tasks:
+            task.cancel()
 
 
 app = FastAPI(title="Poke Watcher", lifespan=lifespan)
@@ -114,7 +118,7 @@ def search_cards(q: str, limit: int = 25, product_type: str | None = None) -> di
 
 @app.post("/api/cards/index")
 async def index_cards() -> dict[str, Any]:
-    if monitor.status.get("indexing") and not monitor.status["indexing"].get("complete"):
+    if monitor.indexing_in_progress():
         return {"status": "already_running", "progress": monitor.status["indexing"]}
     asyncio.create_task(monitor.build_index_background())
     return {"status": "started"}

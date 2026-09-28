@@ -10,11 +10,14 @@ from sqlalchemy import func, select
 from app import db, ebay, grading, notifier, tcg, watches
 from app.config import get_settings
 from app.db import alerts as alerts_table
-from app.db import seen_listings
+from app.db import get_setting, seen_listings, set_setting
 from app.db import watches as watches_table
 from app.rules import evaluate
 
 log = logging.getLogger(__name__)
+
+INDEX_BUILT_AT_KEY = "tcg_index_built_at"
+INDEX_RETRY_SECONDS = 600
 
 status: dict[str, Any] = {
     "running": False,
@@ -163,15 +166,52 @@ async def poll_forever() -> None:
         status["running"] = False
 
 
+def indexing_in_progress() -> bool:
+    progress = status.get("indexing")
+    return bool(progress) and not progress.get("complete")
+
+
+def seconds_until_index_due(refresh_hours: int) -> float:
+    if tcg.index_size() == 0:
+        return 0
+    age = _age_seconds(get_setting(INDEX_BUILT_AT_KEY))
+    if age is None:
+        return 0
+    return max(0.0, refresh_hours * 3600 - age)
+
+
 async def build_index_background() -> int:
     progress: dict[str, Any] = {"done": 0, "total": 0, "products": 0}
     status["indexing"] = progress
     try:
         total = await asyncio.to_thread(tcg.build_index, progress)
+        if total:
+            set_setting(
+                INDEX_BUILT_AT_KEY, datetime.now(timezone.utc).isoformat(timespec="seconds")
+            )
         progress["complete"] = True
         return total
+    except Exception as exc:
+        progress["error"] = str(exc)[:300]
+        raise
     finally:
         progress.setdefault("complete", True)
+
+
+async def index_forever() -> None:
+    """Build the card index when it is empty or stale, then keep it fresh."""
+    refresh_hours = get_settings().index_refresh_hours
+    if refresh_hours <= 0:
+        return
+    while True:
+        if seconds_until_index_due(refresh_hours) <= 0 and not indexing_in_progress():
+            try:
+                total = await build_index_background()
+                log.info("card index built: %s products", total)
+            except Exception:
+                log.exception("card index build failed")
+        delay = seconds_until_index_due(refresh_hours)
+        await asyncio.sleep(delay if delay > 0 else INDEX_RETRY_SECONDS)
 
 
 def stats() -> dict[str, Any]:
@@ -185,4 +225,5 @@ def stats() -> dict[str, Any]:
         ),
         "alerts": count(select(func.count()).select_from(alerts_table)),
         "indexed_products": tcg.index_size(),
+        "index_built_at": get_setting(INDEX_BUILT_AT_KEY) or None,
     }
