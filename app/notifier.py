@@ -35,6 +35,13 @@ def action_links(listing: Listing) -> str:
 
 def build_embed(listing: Listing, watch: Mapping[str, Any], match: Match, market_price: float) -> dict[str, Any]:
     delta = listing.total_price - market_price
+    if not listing.shipping_known:
+        shipping = "Not quoted"
+    elif listing.shipping == 0:
+        shipping = "Free"
+    else:
+        shipping = f"${listing.shipping:,.2f}"
+    total = f"${listing.total_price:,.2f}" + ("" if listing.shipping_known else " + shipping")
     grade = grading.describe(watch.get("grade_company"), watch.get("grade_value"))
     grade_suffix = f" · {grade}" if grade else ""
     return {
@@ -44,12 +51,8 @@ def build_embed(listing: Listing, watch: Mapping[str, Any], match: Match, market
         "description": f"**{match.label}** — {match.pct_of_market * 100:.0f}% of market",
         "fields": [
             {"name": "Buy It Now", "value": f"${listing.price:,.2f}", "inline": True},
-            {
-                "name": "Shipping",
-                "value": "Free" if listing.shipping == 0 else f"${listing.shipping:,.2f}",
-                "inline": True,
-            },
-            {"name": "Total", "value": f"${listing.total_price:,.2f}", "inline": True},
+            {"name": "Shipping", "value": shipping, "inline": True},
+            {"name": "Total", "value": total, "inline": True},
             {"name": "Market", "value": f"${market_price:,.2f}", "inline": True},
             {"name": "Difference", "value": f"{'+' if delta >= 0 else '-'}${abs(delta):,.2f}", "inline": True},
             {"name": "Best Offer", "value": "Yes" if listing.best_offer else "No", "inline": True},

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
@@ -78,6 +79,7 @@ class SettingsIn(BaseModel):
     ebay_verification_token: str | None = None
     ebay_notification_endpoint: str | None = None
     forward_deletion_notices: bool | None = None
+    ship_to_zip: str | None = None
 
 
 def _normalize_grade(data: dict[str, Any], product_type: str | None) -> dict[str, Any]:
@@ -189,6 +191,7 @@ def read_settings() -> dict[str, Any]:
         "ebay_verification_token": ebay_notifications.verification_token(),
         "ebay_notification_endpoint": ebay_notifications.endpoint_url(),
         "forward_deletion_notices": ebay_notifications.forward_to_discord(),
+        "ship_to_zip": ebay.ship_to_zip(),
     }
 
 
@@ -202,6 +205,11 @@ def write_settings(payload: SettingsIn) -> dict[str, Any]:
         set_setting("ebay_notification_endpoint", payload.ebay_notification_endpoint.strip())
     if payload.forward_deletion_notices is not None:
         set_setting("forward_deletion_notices", "1" if payload.forward_deletion_notices else "0")
+    if payload.ship_to_zip is not None:
+        zip_code = payload.ship_to_zip.strip()
+        if zip_code and not re.fullmatch(r"\d{5}", zip_code):
+            raise HTTPException(status_code=422, detail="ZIP must be 5 digits")
+        set_setting("ship_to_zip", zip_code)
     return read_settings()
 
 

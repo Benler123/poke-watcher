@@ -84,6 +84,7 @@ alerts = Table(
     Column("image_url", Text),
     Column("price", Float, nullable=False),
     Column("shipping", Float, nullable=False, server_default="0"),
+    Column("shipping_unknown", Boolean, nullable=False, server_default=text("false")),
     Column("total_price", Float, nullable=False),
     Column("currency", Text, nullable=False, server_default="USD"),
     Column("best_offer", Boolean, nullable=False, server_default=text("false")),

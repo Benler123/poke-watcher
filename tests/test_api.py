@@ -120,6 +120,27 @@ def test_settings_roundtrip(app_client):
     assert settings["discord_webhook_set"] is True
 
 
+def test_ship_to_zip_setting(app_client):
+    assert app_client.put("/api/settings", json={"ship_to_zip": "94103"}).json()["ship_to_zip"] == "94103"
+    assert monitor.ebay.ship_to_zip() == "94103"
+    assert app_client.put("/api/settings", json={"ship_to_zip": "9410"}).status_code == 422
+
+
+def test_alert_records_unquoted_shipping(app_client, monkeypatch):
+    watch = app_client.post(
+        "/api/watches",
+        json={"label": "Umbreon VMAX", "ebay_query": "umbreon vmax 215/203", "manual_market_price": 400.0},
+    ).json()
+    stub = StubEbay([Listing("1", "Umbreon VMAX 215/203", "https://ebay.com/itm/1", 300.0, shipping=None)])
+    monkeypatch.setattr(monitor.ebay, "get_client", lambda: stub)
+    monkeypatch.setattr(monitor.notifier, "send_alert", lambda *args: True)
+
+    [alert] = app_client.post(f"/api/watches/{watch['id']}/check").json()["alerts"]
+    assert alert["shipping_unknown"] is True
+    assert alert["shipping"] == 0.0
+    assert alert["total_price"] == 300.0
+
+
 def test_health_reports_sources(app_client):
     health = app_client.get("/api/health").json()
     assert health["ok"] is True

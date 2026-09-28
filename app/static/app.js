@@ -306,7 +306,7 @@ async function loadAlerts() {
       <div class="grow">
         <div class="title"><a href="${alert.url}" target="_blank" rel="noopener">${alert.title}</a></div>
         <div class="sub">
-          ${money(alert.price)} + ${alert.shipping ? money(alert.shipping) : "free"} shipping =
+          ${money(alert.price)} + ${alert.shipping_unknown ? "unquoted" : alert.shipping ? money(alert.shipping) : "free"} shipping =
           <strong>${money(alert.total_price)}</strong> vs market ${money(alert.market_price)}
           · watch #${alert.watch_id} ${alert.watch_label} · ${alert.created_at} UTC
           ${alert.notified ? "" : " · <span class=\"tag err\">not sent to Discord</span>"}
@@ -330,6 +330,10 @@ async function loadSettings() {
   $("#notify-endpoint").value = settings.ebay_notification_endpoint || "";
   $("#notify-token").value = settings.ebay_verification_token || "";
   $("#notify-forward").checked = Boolean(settings.forward_deletion_notices);
+  $("#ship-zip").value = settings.ship_to_zip || "";
+  $("#ship-zip-status").textContent = settings.ship_to_zip
+    ? `Shipping is quoted to ${settings.ship_to_zip}.`
+    : "No ZIP set — listings with calculated shipping show it as unquoted.";
   $("#notify-status").textContent =
     settings.ebay_notification_endpoint && settings.ebay_verification_token
       ? "Endpoint ready — register it on developer.ebay.com/my/keys."
@@ -365,6 +369,18 @@ $("#save-notify").addEventListener("click", async () => {
     }),
   });
   loadSettings();
+});
+
+$("#save-zip").addEventListener("click", async () => {
+  try {
+    await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({ ship_to_zip: $("#ship-zip").value.trim() }),
+    });
+    loadSettings();
+  } catch (error) {
+    $("#ship-zip-status").textContent = `Not saved — ${error.message}`;
+  }
 });
 
 $("#gen-token").addEventListener("click", async () => {
