@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Poke Watcher</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header>
+  <h1>Poke<span>Watcher</span></h1>
+  <div class="status" id="status-bar"></div>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="watchlist">Watchlist</button>
+  <button class="tab" data-tab="alerts">Alerts</button>
+  <button class="tab" data-tab="settings">Settings</button>
+</nav>
+
+<main>
+  <section id="watchlist" class="panel active">
+    <div class="card">
+      <h2>Add a card to watch</h2>
+      <div class="search-row">
+        <input id="card-search" type="text" placeholder="Search a card, e.g. Charizard ex 199">
+        <button id="card-search-btn">Search</button>
+      </div>
+      <p class="hint" id="index-hint"></p>
+      <ul id="card-results" class="results"></ul>
+
+      <form id="watch-form" class="hidden">
+        <div class="selected" id="selected-card"></div>
+        <div class="grid">
+          <label>Label<input name="label" required></label>
+          <label>eBay search query<input name="ebay_query" required></label>
+          <label>Printing
+            <select name="sub_type_name" id="sub-type"></select>
+          </label>
+          <label>Market price override ($)<input name="manual_market_price" type="number" step="0.01" placeholder="auto from TCGplayer"></label>
+          <label>Alert if BIN total &le; % of market<input name="bin_max_pct_of_market" type="number" step="1" value="100"></label>
+          <label>Alert if Best Offer total &le; % of market<input name="offer_max_pct_of_market" type="number" step="1" value="115"></label>
+          <label>Min total ($)<input name="min_price" type="number" step="0.01" placeholder="ignore junk lots"></label>
+          <label>Max total ($)<input name="max_price" type="number" step="0.01" placeholder="optional"></label>
+          <label class="wide">Exclude titles containing (comma separated)<input name="exclude_terms" placeholder="proxy, custom, lot, jumbo"></label>
+        </div>
+        <div class="actions">
+          <button type="submit">Add to watchlist</button>
+          <button type="button" id="cancel-watch" class="ghost">Cancel</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Watching <span id="watch-count" class="pill">0</span></h2>
+        <button id="run-now" class="ghost">Check all now</button>
+      </div>
+      <div id="watch-list"></div>
+    </div>
+  </section>
+
+  <section id="alerts" class="panel">
+    <div class="card">
+      <div class="card-head">
+        <h2>Alerts</h2>
+        <button id="refresh-alerts" class="ghost">Refresh</button>
+      </div>
+      <div id="alert-list"></div>
+    </div>
+  </section>
+
+  <section id="settings" class="panel">
+    <div class="card">
+      <h2>Discord webhook</h2>
+      <p class="hint">Server Settings &rarr; Integrations &rarr; Webhooks &rarr; New Webhook &rarr; Copy URL.</p>
+      <div class="search-row">
+        <input id="webhook" type="text" placeholder="https://discord.com/api/webhooks/...">
+        <button id="save-webhook">Save</button>
+        <button id="test-webhook" class="ghost">Send test</button>
+      </div>
+      <p class="hint" id="webhook-status"></p>
+    </div>
+    <div class="card">
+      <h2>Card price index</h2>
+      <p class="hint">TCGplayer market prices come from the daily tcgcsv.com dumps. Build the index once so card search works; it takes a few minutes.</p>
+      <button id="build-index">Rebuild card index</button>
+      <p class="hint" id="index-status"></p>
+    </div>
+    <div class="card">
+      <h2>Sources</h2>
+      <pre id="health"></pre>
+    </div>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
