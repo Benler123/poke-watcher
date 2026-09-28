@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS alerts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     watch_id INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,
     listing_id TEXT NOT NULL,
+    item_id TEXT,
     title TEXT NOT NULL,
     url TEXT NOT NULL,
     image_url TEXT,
@@ -119,6 +120,9 @@ def init_db() -> None:
     conn = get_connection()
     with conn:
         conn.executescript(SCHEMA)
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(alerts)")}
+        if "item_id" not in columns:
+            conn.execute("ALTER TABLE alerts ADD COLUMN item_id TEXT")
 
 
 def get_setting(key: str, default: str = "") -> str:

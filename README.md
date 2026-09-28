@@ -25,7 +25,10 @@ thresholds, and every alert that has fired.
   SQLite index of every Pokémon product powers card search; build it once from
   the Settings tab. Any watch can also use a manual market price override.
 - **Notifications** — a Discord webhook URL, set in the Settings tab (stored in
-  SQLite) or via `DISCORD_WEBHOOK_URL`.
+  SQLite) or via `DISCORD_WEBHOOK_URL`. Each alert carries direct action links:
+  **Buy It Now** goes straight into eBay checkout (`/atc/binctr?item=…`) and
+  **Make Offer** opens the listing with the Best Offer layer (`?boolp=1`), the
+  same URLs eBay's own item page uses. Both prompt eBay sign-in if needed.
 
 ## Running
 

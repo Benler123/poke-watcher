@@ -21,6 +21,17 @@ def webhook_url() -> str:
     return get_setting("discord_webhook_url") or get_settings().discord_webhook_url
 
 
+def action_links(listing: Listing) -> str:
+    """Markdown links that jump straight into checkout / the offer layer."""
+    links = []
+    if listing.buy_now_url:
+        links.append(f"[Buy It Now]({listing.buy_now_url})")
+    if listing.offer_url:
+        links.append(f"[Make Offer]({listing.offer_url})")
+    links.append(f"[View listing]({listing.url})")
+    return " · ".join(links)
+
+
 def build_embed(listing: Listing, watch: Mapping[str, Any], match: Match, market_price: float) -> dict[str, Any]:
     delta = listing.total_price - market_price
     return {
@@ -39,6 +50,7 @@ def build_embed(listing: Listing, watch: Mapping[str, Any], match: Match, market
             {"name": "TCG market", "value": f"${market_price:,.2f}", "inline": True},
             {"name": "Difference", "value": f"{'+' if delta >= 0 else '-'}${abs(delta):,.2f}", "inline": True},
             {"name": "Best Offer", "value": "Yes" if listing.best_offer else "No", "inline": True},
+            {"name": "Actions", "value": action_links(listing), "inline": False},
         ],
         "thumbnail": {"url": listing.image_url} if listing.image_url else None,
         "footer": {"text": f"Watch: {watch.get('label', '')}"},

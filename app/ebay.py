@@ -25,6 +25,10 @@ BROWSE_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
 SCRAPE_URL = "https://www.ebay.com/sch/i.html"
 SCOPE = "https://api.ebay.com/oauth/api_scope"
 
+# Direct-action URLs, matching what eBay's own item page links to.
+BUY_NOW_URL = "https://www.ebay.com/atc/binctr?item={item_id}&quantity=1"
+MAKE_OFFER_URL = "https://www.ebay.com/itm/{item_id}?boolp=1"
+
 # Pokemon single cards. Narrows Browse API results away from sealed product.
 CATEGORY_TRADING_CARD_SINGLES = "183454"
 
@@ -51,11 +55,26 @@ class Listing:
     image_url: str | None = None
     condition: str | None = None
     seller: str | None = None
+    item_id: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property
     def total_price(self) -> float:
         return round(self.price + self.shipping, 2)
+
+    @property
+    def buy_now_url(self) -> str | None:
+        """Goes straight into checkout for the Buy It Now price."""
+        if not (self.item_id and self.buy_it_now):
+            return None
+        return BUY_NOW_URL.format(item_id=self.item_id)
+
+    @property
+    def offer_url(self) -> str | None:
+        """Opens the item page with the Best Offer layer."""
+        if not (self.item_id and self.best_offer):
+            return None
+        return MAKE_OFFER_URL.format(item_id=self.item_id)
 
 
 class EbayError(RuntimeError):
@@ -131,6 +150,24 @@ class EbayBrowseClient:
         return [parse_browse_item(item) for item in response.json().get("itemSummaries") or []]
 
 
+_ITEM_ID_RE = re.compile(r"/itm/(?:[^/?]+/)?(\d{9,})")
+
+
+def numeric_item_id(listing_id: str, url: str = "") -> str | None:
+    """Numeric eBay item id, which the direct-action URLs need.
+
+    Browse API ids look like ``v1|407252277498|0``; the item URL carries the
+    same number.
+    """
+    match = _ITEM_ID_RE.search(url or "")
+    if match:
+        return match.group(1)
+    parts = (listing_id or "").split("|")
+    if len(parts) >= 2 and parts[1].isdigit():
+        return parts[1]
+    return listing_id if listing_id.isdigit() else None
+
+
 def parse_browse_item(item: dict[str, Any]) -> Listing:
     price = float(item.get("price", {}).get("value", 0) or 0)
     currency = item.get("price", {}).get("currency", "USD")
@@ -153,6 +190,7 @@ def parse_browse_item(item: dict[str, Any]) -> Listing:
         image_url=(item.get("image") or {}).get("imageUrl"),
         condition=item.get("condition"),
         seller=(item.get("seller") or {}).get("username"),
+        item_id=numeric_item_id(item.get("itemId", ""), item.get("itemWebUrl", "")),
     )
 
 
@@ -197,6 +235,7 @@ def parse_search_html(html: str) -> list[Listing]:
                 best_offer="best offer" in text or "or best offer" in text,
                 buy_it_now="buy it now" in text or "best offer" in text,
                 image_url=image.get("src") if image else None,
+                item_id=match.group(1),
             )
         )
     return listings

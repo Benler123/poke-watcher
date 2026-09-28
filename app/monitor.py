@@ -79,12 +79,14 @@ def check_watch(watch: dict[str, Any], client: Any, notify: bool = True) -> list
         notified = notifier.send_alert(listing, watch, match, market) if notify else False
         with transaction() as conn:
             cursor = conn.execute(
-                "INSERT INTO alerts(watch_id, listing_id, title, url, image_url, price,"
-                " shipping, total_price, currency, best_offer, market_price, pct_of_market,"
-                " reason, notified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO alerts(watch_id, listing_id, item_id, title, url, image_url,"
+                " price, shipping, total_price, currency, best_offer, market_price,"
+                " pct_of_market, reason, notified)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     watch["id"],
                     listing.listing_id,
+                    listing.item_id,
                     listing.title,
                     listing.url,
                     listing.image_url,

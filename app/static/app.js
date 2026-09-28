@@ -220,6 +220,10 @@ async function loadAlerts() {
           · ${alert.watch_label} · ${alert.created_at} UTC
           ${alert.notified ? "" : " · <span class=\"tag err\">not sent to Discord</span>"}
         </div>
+        ${alert.item_id ? `<div class="sub">
+          <a href="https://www.ebay.com/atc/binctr?item=${alert.item_id}&quantity=1" target="_blank" rel="noopener">Buy It Now</a>
+          ${alert.best_offer ? `· <a href="https://www.ebay.com/itm/${alert.item_id}?boolp=1" target="_blank" rel="noopener">Make Offer</a>` : ""}
+        </div>` : ""}
       </div>
       <span class="${tag}">${label}</span>`;
     container.appendChild(row);

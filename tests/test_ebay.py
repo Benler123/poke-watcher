@@ -1,4 +1,4 @@
-from app.ebay import parse_browse_item
+from app.ebay import Listing, numeric_item_id, parse_browse_item
 
 ITEM = {
     "itemId": "v1|123456789|0",
@@ -34,3 +34,29 @@ def test_auction_listing_is_not_buy_it_now():
     listing = parse_browse_item({**ITEM, "buyingOptions": ["AUCTION"]})
     assert listing.buy_it_now is False
     assert listing.best_offer is False
+
+
+def test_numeric_item_id_from_url_and_composite_id():
+    assert numeric_item_id("v1|407252277498|0", "") == "407252277498"
+    assert numeric_item_id("", "https://www.ebay.com/itm/charizard-ex/407252277498?hash=x") == "407252277498"
+    assert numeric_item_id("407252277498") == "407252277498"
+    assert numeric_item_id("", "") is None
+
+
+def test_direct_action_urls():
+    listing = parse_browse_item(ITEM)
+    assert listing.item_id == "123456789"
+    assert listing.buy_now_url == "https://www.ebay.com/atc/binctr?item=123456789&quantity=1"
+    assert listing.offer_url == "https://www.ebay.com/itm/123456789?boolp=1"
+
+
+def test_offer_url_absent_without_best_offer():
+    listing = parse_browse_item({**ITEM, "buyingOptions": ["FIXED_PRICE"]})
+    assert listing.offer_url is None
+    assert listing.buy_now_url is not None
+
+
+def test_action_urls_absent_without_item_id():
+    listing = Listing(listing_id="abc", title="t", url="https://www.ebay.com/itm/", price=1.0)
+    assert listing.buy_now_url is None
+    assert listing.offer_url is None
