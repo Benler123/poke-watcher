@@ -1,4 +1,4 @@
-from app import monitor
+from app import monitor, watches
 from app.ebay import Listing
 
 
@@ -63,7 +63,6 @@ def test_graded_watch_searches_and_filters_by_grade(app_client, monkeypatch):
             "manual_market_price": 200.0,
             "grade_company": "psa",
             "grade_value": "10.0",
-            "grade_price_multiplier": 4.0,
         },
     ).json()
     assert (watch["grade_company"], watch["grade_value"]) == ("PSA", "10")
@@ -98,21 +97,31 @@ def test_health_reports_sources(app_client):
     assert health["stats"]["watches"] == 0
 
 
-def test_market_price_override_can_be_set_and_cleared(app_client, monkeypatch):
-    monkeypatch.setattr(monitor.tcg, "market_price", lambda product_id, sub_type=None: 80.0)
+def test_market_price_is_required_and_editable(app_client):
+    missing = app_client.post("/api/watches", json={"label": "Umbreon ex", "ebay_query": "umbreon ex 161"})
+    assert missing.status_code == 422
+
     watch = app_client.post(
         "/api/watches",
-        json={"label": "Umbreon ex", "ebay_query": "umbreon ex 161", "product_id": 42},
+        json={"label": "Umbreon ex", "ebay_query": "umbreon ex 161", "product_id": 42, "manual_market_price": 80.0},
     ).json()
     assert watch["market_price"] == 80.0
 
-    overridden = app_client.patch(f"/api/watches/{watch['id']}", json={"manual_market_price": 120.0}).json()
-    assert overridden["manual_market_price"] == 120.0
-    assert overridden["market_price"] == 120.0
+    changed = app_client.patch(f"/api/watches/{watch['id']}", json={"manual_market_price": 120.0}).json()
+    assert changed["manual_market_price"] == 120.0
+    assert changed["market_price"] == 120.0
 
-    untouched = app_client.patch(f"/api/watches/{watch['id']}", json={"label": "Umbreon ex SIR"}).json()
-    assert untouched["manual_market_price"] == 120.0
+    for payload in ({"label": "Umbreon ex SIR"}, {"manual_market_price": None}):
+        assert app_client.patch(f"/api/watches/{watch['id']}", json=payload).json()["manual_market_price"] == 120.0
+    assert app_client.patch(f"/api/watches/{watch['id']}", json={"manual_market_price": 0}).status_code == 422
 
-    cleared = app_client.patch(f"/api/watches/{watch['id']}", json={"manual_market_price": None}).json()
-    assert cleared["manual_market_price"] is None
-    assert cleared["market_price"] == 80.0
+
+def test_watch_without_market_price_is_skipped(app_client):
+    watch = watches.create_watch({"label": "Old watch", "ebay_query": "charizard", "product_id": 42})
+
+    class NoSearch:
+        def search(self, *args, **kwargs):
+            raise AssertionError("should not search without a market price")
+
+    assert monitor.check_watch(watch, NoSearch(), notify=False) == []
+    assert "no market price set" in watches.get_watch(watch["id"])["last_error"]

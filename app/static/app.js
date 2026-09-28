@@ -116,20 +116,6 @@ async function selectCard(card) {
       <div class="sub">${card.group_name}${card.number ? ` · #${card.number}` : ""} ·
         <a href="${card.url}" target="_blank" rel="noopener">TCGplayer</a></div>
     </div>`;
-
-  const select = $("#sub-type");
-  select.innerHTML = `<option value="">Loading printings…</option>`;
-  try {
-    const data = await api(`/api/cards/${card.product_id}/price`);
-    const entries = Object.entries(data.prices);
-    select.innerHTML = entries.length
-      ? entries
-          .map(([name, price]) => `<option value="${name}">${name} — ${money(price)}</option>`)
-          .join("")
-      : `<option value="">No TCGplayer price found</option>`;
-  } catch (error) {
-    select.innerHTML = `<option value="">Price lookup failed</option>`;
-  }
 }
 
 $("#card-search-btn").addEventListener("click", searchCards);
@@ -163,18 +149,16 @@ function updateGradeHint() {
   }
   const company = $("#grade-company").value;
   const grade = $("#grade-value").value.trim();
-  const multiplier = Number($("#grade-multiplier").value || 1);
   if (!company || company === "RAW") {
     $("#grade-hint").textContent =
       company === "RAW" ? "Graded listings will be skipped." : "";
     return;
   }
   $("#grade-hint").textContent =
-    `Only ${company} ${grade || "(any grade)"} listings alert. TCGplayer prices are for raw cards, ` +
-    `so set the multiplier to what this grade sells for — currently ${multiplier}x market.`;
+    `Only ${company} ${grade || "(any grade)"} listings alert. Set the market price to what this grade sells for.`;
 }
 
-["#grade-company", "#grade-value", "#grade-multiplier"].forEach((sel) =>
+["#grade-company", "#grade-value"].forEach((sel) =>
   $(sel).addEventListener("input", updateGradeHint)
 );
 
@@ -198,10 +182,8 @@ $("#watch-form").addEventListener("submit", async (event) => {
     set_name: selectedCard ? selectedCard.group_name : null,
     tcgplayer_url: selectedCard ? selectedCard.url : null,
     image_url: selectedCard ? selectedCard.image_url : null,
-    sub_type_name: $("#sub-type").value || null,
     grade_company: isSealed() ? "" : $("#grade-company").value,
     grade_value: isSealed() ? "" : $("#grade-value").value.trim(),
-    grade_price_multiplier: isSealed() ? 1 : value("grade_price_multiplier") ?? 1,
     manual_market_price: value("manual_market_price"),
     bin_max_pct_of_market: (value("bin_max_pct_of_market") ?? 100) / 100,
     offer_max_pct_of_market: (value("offer_max_pct_of_market") ?? 115) / 100,
@@ -230,7 +212,6 @@ async function loadWatches() {
     return;
   }
   watches.forEach((watch) => {
-    const market = watch.manual_market_price ?? watch.market_price;
     const row = document.createElement("div");
     row.className = `row${watch.active ? "" : " inactive"}`;
     row.innerHTML = `
@@ -238,18 +219,17 @@ async function loadWatches() {
       <div class="grow">
         <div class="title">${watch.label}</div>
         <div class="sub">
-          query: <code>${watch.ebay_query}</code>${watch.product_type === "sealed" ? ` · <span class="tag">Sealed</span>` : ""}${watch.sub_type_name ? ` · ${watch.sub_type_name}` : ""}${gradeLabel(watch) ? ` · <span class="tag">${gradeLabel(watch)}</span>` : ""}<br>
-          market ${money(market)}${watch.manual_market_price != null ? ` <span class="tag warn">override</span>` : ""} · alert BIN &le; ${Math.round(watch.bin_max_pct_of_market * 100)}%
+          query: <code>${watch.ebay_query}</code>${watch.product_type === "sealed" ? ` · <span class="tag">Sealed</span>` : ""}${gradeLabel(watch) ? ` · <span class="tag">${gradeLabel(watch)}</span>` : ""}<br>
+          market ${watch.manual_market_price != null ? money(watch.manual_market_price) : `<span class="tag err">not set</span>`} · alert BIN &le; ${Math.round(watch.bin_max_pct_of_market * 100)}%
           · offer &le; ${Math.round(watch.offer_max_pct_of_market * 100)}%
           · ${watch.alert_count} alerts
           ${watch.last_checked_at ? ` · checked ${watch.last_checked_at} UTC` : " · never checked"}
         </div>
         ${watch.last_error ? `<div class="sub"><span class="tag err">${watch.last_error}</span></div>` : ""}
         <div class="price-edit hidden">
-          <input type="number" step="0.01" min="0.01" placeholder="auto from TCGplayer"
+          <input type="number" step="0.01" min="0.01" placeholder="market price"
             value="${watch.manual_market_price ?? ""}">
           <button class="save-price">Save</button>
-          <button type="button" class="ghost clear-price"${watch.manual_market_price == null ? " disabled" : ""}>Use TCGplayer</button>
           <button type="button" class="ghost cancel-price">Cancel</button>
         </div>
       </div>
@@ -269,7 +249,7 @@ async function loadWatches() {
       setTimeout(loadWatches, 1200);
     });
     const priceEdit = row.querySelector(".price-edit");
-    const setOverride = async (price) => {
+    const setPrice = async (price) => {
       await api(`/api/watches/${watch.id}`, {
         method: "PATCH",
         body: JSON.stringify({ manual_market_price: price }),
@@ -281,10 +261,9 @@ async function loadWatches() {
       priceEdit.querySelector("input").focus();
     });
     row.querySelector(".cancel-price").addEventListener("click", () => priceEdit.classList.add("hidden"));
-    row.querySelector(".clear-price").addEventListener("click", () => setOverride(null));
     row.querySelector(".save-price").addEventListener("click", () => {
       const price = Number(priceEdit.querySelector("input").value);
-      setOverride(price > 0 ? price : null);
+      if (price > 0) setPrice(price);
     });
     priceEdit.querySelector("input").addEventListener("keydown", (event) => {
       if (event.key === "Enter") row.querySelector(".save-price").click();

@@ -28,7 +28,6 @@ class Settings(BaseSettings):
     discord_webhook_url: str = ""
 
     poll_interval_seconds: int = 300
-    price_refresh_hours: int = 12
     # Hours between automatic card index rebuilds; 0 disables automatic builds.
     index_refresh_hours: int = 24
     request_timeout_seconds: float = 30.0
