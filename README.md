@@ -47,12 +47,6 @@ copies do not; a raw watch rejects anything that looks slabbed.
 
 Set a graded watch's market price to what that grade sells for.
 
-## First check after adding a watch
-
-A watch's first sweep records the listings that already match without alerting —
-they are not new, and there can be dozens of them. Alerts start from the next
-sweep, when a listing appears that was not up when the watch was created.
-
 ## Data sources
 
 - **Listings** — eBay [Browse API](https://developer.ebay.com/api-docs/buy/browse/overview.html),

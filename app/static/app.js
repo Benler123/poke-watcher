@@ -102,10 +102,10 @@ async function selectCard(card) {
   const form = $("#watch-form");
   form.classList.remove("hidden");
   form.querySelector("[name=label]").value = `${card.name} (${card.group_name})`;
-  form.querySelector("[name=ebay_query]").value = (isSealed()
-    ? card.name
-    : `${card.name}${card.number ? ` ${card.number}` : ""}`
-  ).replace(/\s+/g, " ");
+  const name = card.name.replace(/\s+-\s+/g, " ");
+  const withNumber = !isSealed() && card.number && !name.includes(card.number);
+  form.querySelector("[name=ebay_query]").value =
+    `${name}${withNumber ? ` ${card.number}` : ""}`.replace(/\s+/g, " ").trim();
   if (isSealed() && !form.querySelector("[name=exclude_terms]").value) {
     form.querySelector("[name=exclude_terms]").value = SEALED_EXCLUDES;
   }
