@@ -13,6 +13,26 @@ Two alert rules per watched card:
 Each listing alerts once per watch. The web UI shows the watchlist, per-card
 thresholds, and every alert that has fired.
 
+## Sealed products
+
+A watch is either a **single card** or a **sealed product** (booster boxes,
+ETBs, packs, cases — tcgcsv lists them alongside singles). Sealed watches search
+the sealed eBay categories with a new-condition filter and drop anything that
+comes back from the singles category; grade targeting is disabled for them, and
+the form pre-fills exclusions for opened/empty/damaged/proxy/repack/code-card
+listings.
+
+## Graded cards
+
+A watch can target a grade (PSA / BGS / CGC / SGC / ACE / TAG plus a number, or
+"raw only"). The grade is appended to the eBay query, and listing titles are
+matched against it — `PSA 10`, `psa10` and `PSA-10` all count, `PSA 9` and raw
+copies do not; a raw watch rejects anything that looks slabbed.
+
+tcgcsv prices are for raw cards, so a graded watch multiplies the market price
+by `grade_price_multiplier` (e.g. `4` if PSA 10 copies sell for ~4× raw) before
+the percentage thresholds apply. A manual market price override is used as-is.
+
 ## Data sources
 
 - **Listings** — eBay [Browse API](https://developer.ebay.com/api-docs/buy/browse/overview.html),
@@ -22,12 +42,13 @@ thresholds, and every alert that has fired.
   parsing eBay search HTML, which eBay blocks from most datacenter IPs.
 - **Prices** — TCGplayer market prices from the free daily dumps at
   [tcgcsv.com](https://tcgcsv.com) (TCGplayer has no public price API). A local
-  SQLite index of every Pokémon product powers card search. It builds
+  product index of every Pokémon product powers card search. It builds
   automatically when the database is empty and rebuilds every
   `INDEX_REFRESH_HOURS` (default 24) so new sets appear; **Settings → Rebuild
-  card index** forces a rebuild. Any watch can also use a manual market price override.
+  card index** forces a rebuild. Any watch can also use a manual market price
+  override.
 - **Notifications** — a Discord webhook URL, set in the Settings tab (stored in
-  SQLite) or via `DISCORD_WEBHOOK_URL`. Each alert carries direct action links:
+  the database) or via `DISCORD_WEBHOOK_URL`. Each alert carries direct action links:
   **Buy It Now** goes straight into eBay checkout (`/atc/binctr?item=…`) and
   **Make Offer** opens the listing with the Best Offer layer (`?boolp=1`), the
   same URLs eBay's own item page uses. Both prompt eBay sign-in if needed.
@@ -42,8 +63,26 @@ cp .env.example .env    # fill in eBay keys (optional but recommended)
 
 Open http://localhost:8000. The card index (~20k cards) starts building in
 the background on first launch and takes a few minutes. Paste your Discord
-webhook in **Settings**, then add cards on the **Watchlist** tab. A background sweep runs every `POLL_INTERVAL_SECONDS`
-(default 300); "Check all now" runs one immediately.
+webhook in **Settings**, then add cards on the **Watchlist** tab. A background
+sweep runs every `POLL_INTERVAL_SECONDS` (default 300); "Check all now" runs one
+immediately.
+
+## Database
+
+Set `DATABASE_URL` to a Postgres connection string and the app keeps everything
+there (watches, alerts, settings, the product/price index); the schema is
+created on startup. With `DATABASE_URL` unset it falls back to a local SQLite
+file at `DATABASE_PATH` (default `data/poke_watcher.db`), which is fine for
+local development and tests.
+
+For Supabase, copy **Project Settings → Database → Connection string → URI** and
+substitute your database password. `postgres://`, `postgresql://` and
+`postgresql+psycopg://` are all accepted. Prefer the pooler host (port 6543) on
+platforms that open many short-lived connections.
+
+Moving off an existing SQLite deployment means pointing `DATABASE_URL` at
+Postgres and rebuilding the card index from the Settings tab; old watches are
+not copied across automatically.
 
 ## eBay account deletion endpoint
 
@@ -53,8 +92,9 @@ endpoint. This app serves it at `/ebay/notifications`:
 
 - `GET  /ebay/notifications?challenge_code=…` returns
   `{"challengeResponse": sha256(challengeCode + verificationToken + endpoint)}`
-- `POST /ebay/notifications` acks with 204 and forwards a summary of the
-  deletion notice to the Discord webhook.
+- `POST /ebay/notifications` acks with 204. Forwarding a summary of each notice
+  to Discord is opt-in ("Forward deletion notices to Discord" in Settings) —
+  eBay sends one for every account it closes, so it is off by default.
 
 Deploy the app somewhere public, then in **Settings → eBay account deletion
 endpoint** paste that public URL, hit **Generate** for a token, save, and
@@ -63,16 +103,15 @@ endpoint URL must match byte for byte — it is part of the hash.
 
 ## Deploying
 
-The app ships a `Dockerfile` (SQLite lives at `DATABASE_PATH`, default
-`/data/poke_watcher.db`, so mount a volume there) plus ready-made
-`render.yaml` and `fly.toml`:
+The app ships a `Dockerfile` plus ready-made `render.yaml` and `fly.toml`. State
+lives in Postgres, so no volume is needed — just set `DATABASE_URL`:
 
 ```bash
-# Render: New → Blueprint → point at this repo (render.yaml does the rest)
+# Render: New → Blueprint → point at this repo, then set DATABASE_URL,
+# EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, DISCORD_WEBHOOK_URL under Environment
 # Fly:
 fly launch --copy-config --no-deploy
-fly volumes create poke_watcher_data --size 1
-fly secrets set EBAY_CLIENT_ID=… EBAY_CLIENT_SECRET=… DISCORD_WEBHOOK_URL=…
+fly secrets set DATABASE_URL=… EBAY_CLIENT_ID=… EBAY_CLIENT_SECRET=… DISCORD_WEBHOOK_URL=…
 fly deploy
 ```
 
@@ -82,7 +121,7 @@ Then use the deployed `https://…/ebay/notifications` URL below.
 
 ```
 app/config.py     settings from .env
-app/db.py         SQLite schema + connection handling
+app/db.py         SQLAlchemy schema (Postgres or SQLite) + query helpers
 app/tcg.py        tcgcsv product index and TCGplayer market prices
 app/ebay.py       Browse API client, HTML scraper fallback, Listing model
 app/rules.py      deal evaluation (pure, unit tested)

@@ -5,9 +5,13 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from app import ebay, notifier, tcg, watches
+from sqlalchemy import func, select
+
+from app import db, ebay, grading, notifier, tcg, watches
 from app.config import get_settings
-from app.db import get_connection, get_setting, set_setting, transaction
+from app.db import alerts as alerts_table
+from app.db import get_setting, seen_listings, set_setting
+from app.db import watches as watches_table
 from app.rules import evaluate
 
 log = logging.getLogger(__name__)
@@ -26,34 +30,47 @@ status: dict[str, Any] = {
 
 
 def _is_new_listing(watch_id: int, listing_id: str) -> bool:
-    with transaction() as conn:
-        cursor = conn.execute(
-            "INSERT OR IGNORE INTO seen_listings(watch_id, listing_id) VALUES (?, ?)",
-            (watch_id, listing_id),
-        )
-    return cursor.rowcount > 0
+    return db.insert_if_absent(
+        seen_listings, {"watch_id": watch_id, "listing_id": listing_id}
+    )
+
+
+def _age_seconds(value: Any) -> float | None:
+    """Seconds since a timestamp, which Postgres returns aware and SQLite naive."""
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - value).total_seconds()
 
 
 def resolve_market_price(watch: dict[str, Any], force: bool = False) -> float | None:
+    """Market price for the watch, scaled to its grade.
+
+    TCGplayer prices are for raw cards, so a graded watch multiplies them by
+    ``grade_price_multiplier``; a manual override is taken as-is.
+    """
     if watch.get("manual_market_price"):
         return float(watch["manual_market_price"])
+    multiplier = float(watch.get("grade_price_multiplier") or 1.0)
     product_id = watch.get("product_id")
     if not product_id:
         return watch.get("market_price")
 
     fresh_hours = get_settings().price_refresh_hours
-    updated_at = watch.get("market_price_updated_at")
-    if not force and updated_at and watch.get("market_price"):
-        try:
-            age = datetime.now(timezone.utc) - datetime.fromisoformat(updated_at).replace(
-                tzinfo=timezone.utc
-            )
-            if age.total_seconds() < fresh_hours * 3600:
-                return float(watch["market_price"])
-        except ValueError:
-            pass
+    if not force and watch.get("market_price"):
+        age = _age_seconds(watch.get("market_price_updated_at"))
+        if age is not None and age < fresh_hours * 3600:
+            return float(watch["market_price"])
 
     price = tcg.market_price(int(product_id), watch.get("sub_type_name"))
+    if price is not None:
+        price *= multiplier
     watches.record_market_price(watch["id"], price)
     return price
 
@@ -69,7 +86,10 @@ def check_watch(watch: dict[str, Any], client: Any, notify: bool = True) -> list
         float(watch.get("offer_max_pct_of_market") or 1.15),
     )
     listings = client.search(
-        watch["ebay_query"], limit=get_settings().ebay_search_limit, max_price=ceiling
+        grading.search_query(watch),
+        limit=get_settings().ebay_search_limit,
+        max_price=ceiling,
+        product_type=watch.get("product_type") or ebay.SINGLE,
     )
 
     created: list[dict[str, Any]] = []
@@ -80,32 +100,28 @@ def check_watch(watch: dict[str, Any], client: Any, notify: bool = True) -> list
         if not _is_new_listing(watch["id"], listing.listing_id):
             continue
         notified = notifier.send_alert(listing, watch, match, market) if notify else False
-        with transaction() as conn:
-            cursor = conn.execute(
-                "INSERT INTO alerts(watch_id, listing_id, item_id, title, url, image_url,"
-                " price, shipping, total_price, currency, best_offer, market_price,"
-                " pct_of_market, reason, notified)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    watch["id"],
-                    listing.listing_id,
-                    listing.item_id,
-                    listing.title,
-                    listing.url,
-                    listing.image_url,
-                    listing.price,
-                    listing.shipping,
-                    listing.total_price,
-                    listing.currency,
-                    int(listing.best_offer),
-                    market,
-                    match.pct_of_market,
-                    match.reason,
-                    int(notified),
-                ),
+        created.append(
+            db.insert_returning(
+                alerts_table,
+                {
+                    "watch_id": watch["id"],
+                    "listing_id": listing.listing_id,
+                    "item_id": listing.item_id,
+                    "title": listing.title,
+                    "url": listing.url,
+                    "image_url": listing.image_url,
+                    "price": listing.price,
+                    "shipping": listing.shipping,
+                    "total_price": listing.total_price,
+                    "currency": listing.currency,
+                    "best_offer": listing.best_offer,
+                    "market_price": market,
+                    "pct_of_market": match.pct_of_market,
+                    "reason": match.reason,
+                    "notified": notified,
+                },
             )
-            row = conn.execute("SELECT * FROM alerts WHERE id = ?", (cursor.lastrowid,)).fetchone()
-        created.append(dict(row))
+        )
 
     watches.record_check(watch["id"], None)
     return created
@@ -158,14 +174,9 @@ def indexing_in_progress() -> bool:
 def seconds_until_index_due(refresh_hours: int) -> float:
     if tcg.index_size() == 0:
         return 0
-    built_at = get_setting(INDEX_BUILT_AT_KEY)
-    if not built_at:
+    age = _age_seconds(get_setting(INDEX_BUILT_AT_KEY))
+    if age is None:
         return 0
-    try:
-        built = datetime.fromisoformat(built_at)
-    except ValueError:
-        return 0
-    age = (datetime.now(timezone.utc) - built).total_seconds()
     return max(0.0, refresh_hours * 3600 - age)
 
 
@@ -204,13 +215,15 @@ async def index_forever() -> None:
 
 
 def stats() -> dict[str, Any]:
-    conn = get_connection()
+    def count(statement: Any) -> int:
+        return int(db.scalar(statement) or 0)
+
     return {
-        "watches": conn.execute("SELECT COUNT(*) AS n FROM watches").fetchone()["n"],
-        "active_watches": conn.execute(
-            "SELECT COUNT(*) AS n FROM watches WHERE active = 1"
-        ).fetchone()["n"],
-        "alerts": conn.execute("SELECT COUNT(*) AS n FROM alerts").fetchone()["n"],
+        "watches": count(select(func.count()).select_from(watches_table)),
+        "active_watches": count(
+            select(func.count()).select_from(watches_table).where(watches_table.c.active)
+        ),
+        "alerts": count(select(func.count()).select_from(alerts_table)),
         "indexed_products": tcg.index_size(),
         "index_built_at": get_setting(INDEX_BUILT_AT_KEY) or None,
     }

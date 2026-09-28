@@ -2,14 +2,14 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app import ebay, ebay_notifications, monitor, notifier, tcg, watches
+from app import ebay, ebay_notifications, grading, monitor, notifier, tcg, watches
 from app.config import get_settings
 from app.db import get_setting, init_db, set_setting
 
@@ -40,12 +40,16 @@ app = FastAPI(title="Poke Watcher", lifespan=lifespan)
 class WatchIn(BaseModel):
     label: str = Field(min_length=1)
     ebay_query: str = Field(min_length=1)
+    product_type: Literal["single", "sealed"] = "single"
     product_id: int | None = None
     sub_type_name: str | None = None
     set_name: str | None = None
     tcgplayer_url: str | None = None
     image_url: str | None = None
     manual_market_price: float | None = None
+    grade_company: str = ""
+    grade_value: str = ""
+    grade_price_multiplier: float = 1.0
     bin_max_pct_of_market: float = 1.0
     offer_max_pct_of_market: float = 1.15
     min_price: float | None = None
@@ -57,8 +61,12 @@ class WatchIn(BaseModel):
 class WatchPatch(BaseModel):
     label: str | None = None
     ebay_query: str | None = None
+    product_type: Literal["single", "sealed"] | None = None
     sub_type_name: str | None = None
     manual_market_price: float | None = None
+    grade_company: str | None = None
+    grade_value: str | None = None
+    grade_price_multiplier: float | None = None
     bin_max_pct_of_market: float | None = None
     offer_max_pct_of_market: float | None = None
     min_price: float | None = None
@@ -71,6 +79,19 @@ class SettingsIn(BaseModel):
     discord_webhook_url: str | None = None
     ebay_verification_token: str | None = None
     ebay_notification_endpoint: str | None = None
+    forward_deletion_notices: bool | None = None
+
+
+def _normalize_grade(data: dict[str, Any], product_type: str | None) -> dict[str, Any]:
+    """Grades only apply to singles; sealed product is graded by nobody."""
+    if product_type == tcg.SEALED:
+        data.update(grade_company="", grade_value="", grade_price_multiplier=1.0)
+        return data
+    if "grade_company" in data:
+        data["grade_company"] = grading.normalize_company(data["grade_company"])
+    if "grade_value" in data:
+        data["grade_value"] = grading.normalize_value(data["grade_value"])
+    return data
 
 
 @app.get("/api/health")
@@ -87,8 +108,8 @@ def health() -> dict[str, Any]:
 
 
 @app.get("/api/cards/search")
-def search_cards(q: str, limit: int = 25) -> dict[str, Any]:
-    results = tcg.search_products(q, limit=limit)
+def search_cards(q: str, limit: int = 25, product_type: str | None = None) -> dict[str, Any]:
+    results = tcg.search_products(q, limit=limit, product_type=product_type)
     return {"results": results, "indexed": tcg.index_size()}
 
 
@@ -115,8 +136,7 @@ def get_watches() -> list[dict[str, Any]]:
 
 @app.post("/api/watches", status_code=201)
 def post_watch(payload: WatchIn) -> dict[str, Any]:
-    data = payload.model_dump()
-    data["active"] = int(data["active"])
+    data = _normalize_grade(payload.model_dump(), payload.product_type)
     watch = watches.create_watch(data)
     try:
         watches.record_market_price(watch["id"], monitor.resolve_market_price(watch, force=True))
@@ -130,8 +150,10 @@ def post_watch(payload: WatchIn) -> dict[str, Any]:
 @app.patch("/api/watches/{watch_id}")
 def patch_watch(watch_id: int, payload: WatchPatch) -> dict[str, Any]:
     data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
-    if "active" in data:
-        data["active"] = int(data["active"])
+    existing = watches.get_watch(watch_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="watch not found")
+    data = _normalize_grade(data, data.get("product_type") or existing.get("product_type"))
     watch = watches.update_watch(watch_id, data)
     if watch is None:
         raise HTTPException(status_code=404, detail="watch not found")
@@ -175,6 +197,7 @@ def read_settings() -> dict[str, Any]:
         "ebay_source": "browse_api" if get_settings().ebay_configured else "html_scrape",
         "ebay_verification_token": ebay_notifications.verification_token(),
         "ebay_notification_endpoint": ebay_notifications.endpoint_url(),
+        "forward_deletion_notices": ebay_notifications.forward_to_discord(),
     }
 
 
@@ -186,6 +209,8 @@ def write_settings(payload: SettingsIn) -> dict[str, Any]:
         set_setting("ebay_verification_token", payload.ebay_verification_token.strip())
     if payload.ebay_notification_endpoint is not None:
         set_setting("ebay_notification_endpoint", payload.ebay_notification_endpoint.strip())
+    if payload.forward_deletion_notices is not None:
+        set_setting("forward_deletion_notices", "1" if payload.forward_deletion_notices else "0")
     return read_settings()
 
 
@@ -228,7 +253,8 @@ async def ebay_notification(request: Request) -> Response:
     except ValueError:
         payload = {}
     log.info("eBay notification: %s", payload)
-    notifier.send_notice(ebay_notifications.summarize(payload))
+    if ebay_notifications.forward_to_discord():
+        notifier.send_notice(ebay_notifications.summarize(payload))
     return Response(status_code=204)
 
 

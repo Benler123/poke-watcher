@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 
+from app import grading
 from app.config import get_settings
 from app.db import get_setting
 from app.ebay import Listing
@@ -34,6 +35,8 @@ def action_links(listing: Listing) -> str:
 
 def build_embed(listing: Listing, watch: Mapping[str, Any], match: Match, market_price: float) -> dict[str, Any]:
     delta = listing.total_price - market_price
+    grade = grading.describe(watch.get("grade_company"), watch.get("grade_value"))
+    grade_suffix = f" · {grade}" if grade else ""
     return {
         "title": listing.title[:250],
         "url": listing.url,
@@ -53,7 +56,7 @@ def build_embed(listing: Listing, watch: Mapping[str, Any], match: Match, market
             {"name": "Actions", "value": action_links(listing), "inline": False},
         ],
         "thumbnail": {"url": listing.image_url} if listing.image_url else None,
-        "footer": {"text": f"Watch: {watch.get('label', '')}"},
+        "footer": {"text": f"Watch: {watch.get('label', '')}{grade_suffix}"},
     }
 
 

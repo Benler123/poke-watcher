@@ -29,8 +29,22 @@ SCOPE = "https://api.ebay.com/oauth/api_scope"
 BUY_NOW_URL = "https://www.ebay.com/atc/binctr?item={item_id}&quantity=1"
 MAKE_OFFER_URL = "https://www.ebay.com/itm/{item_id}?boolp=1"
 
-# Pokemon single cards. Narrows Browse API results away from sealed product.
-CATEGORY_TRADING_CARD_SINGLES = "183454"
+# Toys & Hobbies > Collectible Card Games, and its leaf categories. The Browse
+# API takes a single category id, so sealed searches ask for the parent and drop
+# anything that did not land in a sealed leaf.
+CATEGORY_CCG = "2536"
+CATEGORY_CCG_SINGLES = "183454"
+SEALED_CATEGORY_IDS = frozenset(
+    {
+        "261044",  # CCG Sealed Boxes
+        "183456",  # CCG Sealed Packs
+        "183457",  # CCG Sealed Decks & Kits
+        "261045",  # CCG Sealed Cases
+    }
+)
+
+SINGLE = "single"
+SEALED = "sealed"
 
 BROWSER_HEADERS = {
     "User-Agent": (
@@ -56,11 +70,16 @@ class Listing:
     condition: str | None = None
     seller: str | None = None
     item_id: str | None = None
+    category_ids: tuple[str, ...] = ()
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property
     def total_price(self) -> float:
         return round(self.price + self.shipping, 2)
+
+    @property
+    def is_sealed_category(self) -> bool:
+        return any(category in SEALED_CATEGORY_IDS for category in self.category_ids)
 
     @property
     def buy_now_url(self) -> str | None:
@@ -121,9 +140,13 @@ class EbayBrowseClient:
         query: str,
         limit: int = 50,
         max_price: float | None = None,
-        singles_only: bool = True,
+        product_type: str = SINGLE,
     ) -> list[Listing]:
-        filters = ["buyingOptions:{FIXED_PRICE}", "conditions:{NEW|USED}"]
+        sealed = product_type == SEALED
+        filters = [
+            "buyingOptions:{FIXED_PRICE}",
+            "conditions:{NEW}" if sealed else "conditions:{NEW|USED}",
+        ]
         if max_price is not None:
             filters.append(f"price:[..{max_price:.2f}]")
             filters.append("priceCurrency:USD")
@@ -132,9 +155,8 @@ class EbayBrowseClient:
             "limit": min(limit, 200),
             "sort": "newlyListed",
             "filter": ",".join(filters),
+            "category_ids": CATEGORY_CCG if sealed else CATEGORY_CCG_SINGLES,
         }
-        if singles_only:
-            params["category_ids"] = CATEGORY_TRADING_CARD_SINGLES
 
         with httpx.Client(timeout=get_settings().request_timeout_seconds) as client:
             response = client.get(
@@ -147,7 +169,12 @@ class EbayBrowseClient:
             )
         if response.status_code != 200:
             raise EbayError(f"Browse API error ({response.status_code}): {response.text[:300]}")
-        return [parse_browse_item(item) for item in response.json().get("itemSummaries") or []]
+        listings = [
+            parse_browse_item(item) for item in response.json().get("itemSummaries") or []
+        ]
+        if sealed:
+            listings = [listing for listing in listings if listing.is_sealed_category]
+        return listings
 
 
 _ITEM_ID_RE = re.compile(r"/itm/(?:[^/?]+/)?(\d{9,})")
@@ -191,6 +218,11 @@ def parse_browse_item(item: dict[str, Any]) -> Listing:
         condition=item.get("condition"),
         seller=(item.get("seller") or {}).get("username"),
         item_id=numeric_item_id(item.get("itemId", ""), item.get("itemWebUrl", "")),
+        category_ids=tuple(
+            str(category.get("categoryId"))
+            for category in item.get("categories") or []
+            if category.get("categoryId")
+        ),
     )
 
 
@@ -249,13 +281,14 @@ class EbayScrapeClient:
         query: str,
         limit: int = 50,
         max_price: float | None = None,
-        singles_only: bool = True,
+        product_type: str = SINGLE,
     ) -> list[Listing]:
         params: dict[str, Any] = {
             "_nkw": query,
             "_sop": 10,  # newly listed
             "LH_BIN": 1,
             "_ipg": min(limit, 60),
+            "_sacat": CATEGORY_CCG if product_type == SEALED else CATEGORY_CCG_SINGLES,
         }
         if max_price is not None:
             params["_udhi"] = f"{max_price:.2f}"

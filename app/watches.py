@@ -1,18 +1,25 @@
-"""CRUD for watched cards."""
+"""CRUD for watched cards and sealed products."""
 
 from typing import Any
 
-from app.db import get_connection, transaction
+from sqlalchemy import func, select
+
+from app import db
+from app.db import alerts, watches
 
 FIELDS = (
     "label",
     "ebay_query",
+    "product_type",
     "product_id",
     "sub_type_name",
     "set_name",
     "tcgplayer_url",
     "image_url",
     "manual_market_price",
+    "grade_company",
+    "grade_value",
+    "grade_price_multiplier",
     "bin_max_pct_of_market",
     "offer_max_pct_of_market",
     "min_price",
@@ -23,74 +30,60 @@ FIELDS = (
 
 
 def list_watches() -> list[dict[str, Any]]:
-    rows = get_connection().execute(
-        "SELECT w.*, (SELECT COUNT(*) FROM alerts a WHERE a.watch_id = w.id) AS alert_count"
-        " FROM watches w ORDER BY w.created_at DESC"
-    ).fetchall()
-    return [dict(row) for row in rows]
+    alert_count = (
+        select(func.count())
+        .select_from(alerts)
+        .where(alerts.c.watch_id == watches.c.id)
+        .scalar_subquery()
+        .label("alert_count")
+    )
+    statement = select(watches, alert_count).order_by(watches.c.created_at.desc())
+    return db.fetch_all(statement)
 
 
 def get_watch(watch_id: int) -> dict[str, Any] | None:
-    row = get_connection().execute("SELECT * FROM watches WHERE id = ?", (watch_id,)).fetchone()
-    return dict(row) if row else None
+    return db.fetch_one(watches.select().where(watches.c.id == watch_id))
 
 
 def create_watch(data: dict[str, Any]) -> dict[str, Any]:
     values = {field: data.get(field) for field in FIELDS if field in data}
-    columns = ", ".join(values)
-    placeholders = ", ".join("?" for _ in values)
-    with transaction() as conn:
-        cursor = conn.execute(
-            f"INSERT INTO watches({columns}) VALUES ({placeholders})", tuple(values.values())
-        )
-    created = get_watch(int(cursor.lastrowid))
-    assert created is not None
-    return created
+    return db.insert_returning(watches, values)
 
 
 def update_watch(watch_id: int, data: dict[str, Any]) -> dict[str, Any] | None:
     values = {field: data[field] for field in FIELDS if field in data}
     if values:
-        assignments = ", ".join(f"{field} = ?" for field in values)
-        with transaction() as conn:
-            conn.execute(
-                f"UPDATE watches SET {assignments} WHERE id = ?",
-                (*values.values(), watch_id),
-            )
+        db.execute(watches.update().where(watches.c.id == watch_id).values(**values))
     return get_watch(watch_id)
 
 
 def delete_watch(watch_id: int) -> None:
-    with transaction() as conn:
-        conn.execute("DELETE FROM watches WHERE id = ?", (watch_id,))
+    db.execute(watches.delete().where(watches.c.id == watch_id))
 
 
 def record_market_price(watch_id: int, price: float | None) -> None:
-    with transaction() as conn:
-        conn.execute(
-            "UPDATE watches SET market_price = ?, market_price_updated_at = datetime('now')"
-            " WHERE id = ?",
-            (price, watch_id),
-        )
+    db.execute(
+        watches.update()
+        .where(watches.c.id == watch_id)
+        .values(market_price=price, market_price_updated_at=func.now())
+    )
 
 
 def record_check(watch_id: int, error: str | None = None) -> None:
-    with transaction() as conn:
-        conn.execute(
-            "UPDATE watches SET last_checked_at = datetime('now'), last_error = ? WHERE id = ?",
-            (error, watch_id),
-        )
+    db.execute(
+        watches.update()
+        .where(watches.c.id == watch_id)
+        .values(last_checked_at=func.now(), last_error=error)
+    )
 
 
 def list_alerts(limit: int = 100, watch_id: int | None = None) -> list[dict[str, Any]]:
-    sql = (
-        "SELECT a.*, w.label AS watch_label FROM alerts a"
-        " JOIN watches w ON w.id = a.watch_id"
+    statement = (
+        select(alerts, watches.c.label.label("watch_label"))
+        .join(watches, watches.c.id == alerts.c.watch_id)
+        .order_by(alerts.c.created_at.desc(), alerts.c.id.desc())
+        .limit(limit)
     )
-    params: list[Any] = []
     if watch_id is not None:
-        sql += " WHERE a.watch_id = ?"
-        params.append(watch_id)
-    sql += " ORDER BY a.created_at DESC, a.id DESC LIMIT ?"
-    params.append(limit)
-    return [dict(row) for row in get_connection().execute(sql, params).fetchall()]
+        statement = statement.where(alerts.c.watch_id == watch_id)
+    return db.fetch_all(statement)

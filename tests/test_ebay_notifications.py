@@ -44,6 +44,8 @@ def test_challenge_endpoint_unconfigured():
 
 
 def test_notification_post_acks_and_notifies(monkeypatch):
+    _configure()
+    set_setting("forward_deletion_notices", "1")
     sent: list[str] = []
     monkeypatch.setattr("app.notifier.send_notice", lambda content: sent.append(content) or True)
     payload = {
@@ -54,3 +56,14 @@ def test_notification_post_acks_and_notifies(monkeypatch):
         response = client.post("/ebay/notifications", json=payload)
     assert response.status_code == 204
     assert sent == ["eBay account deletion notification for buyer1 (userId abc123)"]
+
+
+def test_notification_post_stays_quiet_by_default(monkeypatch):
+    _configure()
+    set_setting("forward_deletion_notices", "0")
+    sent: list[str] = []
+    monkeypatch.setattr("app.notifier.send_notice", lambda content: sent.append(content) or True)
+    with TestClient(app) as client:
+        response = client.post("/ebay/notifications", json={"notification": {"data": {}}})
+    assert response.status_code == 204
+    assert sent == []

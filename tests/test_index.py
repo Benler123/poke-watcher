@@ -5,17 +5,25 @@ import pytest
 
 from app import monitor, tcg
 from app.config import get_settings
-from app.db import set_setting, transaction
+from app.db import set_setting
+
+PIKACHU = {
+    "productId": 1,
+    "name": "Pikachu",
+    "cleanName": "Pikachu",
+    "extendedData": [{"name": "Number", "value": "58/102"}],
+}
 
 
-def _fake_build_index(calls):
+def _index_pikachu(monkeypatch):
+    monkeypatch.setattr(tcg, "fetch_products", lambda group_id: [PIKACHU])
+    tcg.index_group(10, "Base Set")
+
+
+def _fake_build_index(calls, monkeypatch):
     def build(progress=None):
         calls.append(progress)
-        with transaction() as conn:
-            conn.execute(
-                "INSERT OR IGNORE INTO tcg_products(product_id, name, clean_name, group_id,"
-                " group_name) VALUES (1, 'Pikachu', 'Pikachu', 10, 'Base Set')"
-            )
+        _index_pikachu(monkeypatch)
         if progress is not None:
             progress.update(done=1, total=1, products=1)
         return 1
@@ -23,14 +31,10 @@ def _fake_build_index(calls):
     return build
 
 
-def test_index_due_when_empty_or_stale(app_client):
+def test_index_due_when_empty_or_stale(app_client, monkeypatch):
     assert monitor.seconds_until_index_due(24) == 0
 
-    with transaction() as conn:
-        conn.execute(
-            "INSERT INTO tcg_products(product_id, name, clean_name, group_id, group_name)"
-            " VALUES (1, 'Pikachu', 'Pikachu', 10, 'Base Set')"
-        )
+    _index_pikachu(monkeypatch)
     assert monitor.seconds_until_index_due(24) == 0
 
     fresh = datetime.now(timezone.utc) - timedelta(hours=1)
@@ -45,7 +49,7 @@ def test_index_due_when_empty_or_stale(app_client):
 def test_index_forever_builds_then_sleeps_until_refresh(app_client, monkeypatch):
     calls = []
     sleeps = []
-    monkeypatch.setattr(tcg, "build_index", _fake_build_index(calls))
+    monkeypatch.setattr(tcg, "build_index", _fake_build_index(calls, monkeypatch))
     monkeypatch.setattr(get_settings(), "index_refresh_hours", 24)
 
     async def fake_sleep(seconds):
