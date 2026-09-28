@@ -82,6 +82,19 @@
       <p class="hint" id="webhook-status"></p>
     </div>
     <div class="card">
+      <h2>eBay account deletion endpoint</h2>
+      <p class="hint">eBay requires this before production API keys work. Paste the public URL of <code>/ebay/notifications</code>, generate a token, save, then register both on <a href="https://developer.ebay.com/my/keys" target="_blank" rel="noopener">developer.ebay.com/my/keys</a>. Deletion notices are forwarded to Discord.</p>
+      <div class="search-row">
+        <input id="notify-endpoint" type="text" placeholder="https://your-app.fly.dev/ebay/notifications">
+        <button id="save-notify">Save</button>
+      </div>
+      <div class="search-row">
+        <input id="notify-token" type="text" placeholder="verification token (32-80 chars)">
+        <button id="gen-token" class="ghost">Generate</button>
+      </div>
+      <p class="hint" id="notify-status"></p>
+    </div>
+    <div class="card">
       <h2>Card price index</h2>
       <p class="hint">TCGplayer market prices come from the daily tcgcsv.com dumps. Build the index once so card search works; it takes a few minutes.</p>
       <button id="build-index">Rebuild card index</button>

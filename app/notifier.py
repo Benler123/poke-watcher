@@ -76,6 +76,21 @@ def send_alert(listing: Listing, watch: Mapping[str, Any], match: Match, market_
         return False
 
 
+def send_notice(content: str) -> bool:
+    """Post a plain-text message (used for eBay account deletion notices)."""
+    url = webhook_url()
+    if not url:
+        log.warning("no Discord webhook configured; skipping notice: %s", content)
+        return False
+    try:
+        with httpx.Client(timeout=get_settings().request_timeout_seconds) as client:
+            response = client.post(url, json={"username": "Poke Watcher", "content": content[:1900]})
+        return response.status_code < 300
+    except httpx.HTTPError as exc:
+        log.error("discord webhook error: %s", exc)
+        return False
+
+
 def send_test_message() -> bool:
     url = webhook_url()
     if not url:

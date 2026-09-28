@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     ebay_marketplace: str = "EBAY_US"
     ebay_search_limit: int = 50
 
+    # Marketplace account deletion notifications (required for production keys).
+    ebay_verification_token: str = ""
+    ebay_notification_endpoint: str = ""
+
     discord_webhook_url: str = ""
 
     poll_interval_seconds: int = 300

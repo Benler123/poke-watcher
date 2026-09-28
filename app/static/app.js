@@ -236,6 +236,12 @@ async function loadSettings() {
   $("#webhook-status").textContent = settings.discord_webhook_set
     ? "Webhook configured."
     : "No webhook set — alerts will only appear in this UI.";
+  $("#notify-endpoint").value = settings.ebay_notification_endpoint || "";
+  $("#notify-token").value = settings.ebay_verification_token || "";
+  $("#notify-status").textContent =
+    settings.ebay_notification_endpoint && settings.ebay_verification_token
+      ? "Endpoint ready — register it on developer.ebay.com/my/keys."
+      : "Not configured — eBay production keys stay disabled until this is registered.";
   loadHealth();
 }
 
@@ -255,6 +261,23 @@ $("#test-webhook").addEventListener("click", async () => {
   } catch (error) {
     status.textContent = `Test failed — ${error.message}`;
   }
+});
+
+$("#save-notify").addEventListener("click", async () => {
+  await api("/api/settings", {
+    method: "PUT",
+    body: JSON.stringify({
+      ebay_notification_endpoint: $("#notify-endpoint").value.trim(),
+      ebay_verification_token: $("#notify-token").value.trim(),
+    }),
+  });
+  loadSettings();
+});
+
+$("#gen-token").addEventListener("click", async () => {
+  const result = await api("/api/settings/ebay-token", { method: "POST" });
+  $("#notify-token").value = result.ebay_verification_token;
+  $("#notify-status").textContent = "Token generated — save, then register it with eBay.";
 });
 
 $("#build-index").addEventListener("click", async () => {

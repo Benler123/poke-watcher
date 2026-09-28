@@ -43,6 +43,22 @@ minutes, ~20k cards), paste your Discord webhook, then add cards on the
 **Watchlist** tab. A background sweep runs every `POLL_INTERVAL_SECONDS`
 (default 300); "Check all now" runs one immediately.
 
+## eBay account deletion endpoint
+
+eBay only enables production API keys once the application exposes a public
+HTTPS [marketplace account deletion](https://developer.ebay.com/marketplace-account-deletion)
+endpoint. This app serves it at `/ebay/notifications`:
+
+- `GET  /ebay/notifications?challenge_code=…` returns
+  `{"challengeResponse": sha256(challengeCode + verificationToken + endpoint)}`
+- `POST /ebay/notifications` acks with 204 and forwards a summary of the
+  deletion notice to the Discord webhook.
+
+Deploy the app somewhere public, then in **Settings → eBay account deletion
+endpoint** paste that public URL, hit **Generate** for a token, save, and
+register the same URL + token on https://developer.ebay.com/my/keys. The
+endpoint URL must match byte for byte — it is part of the hash.
+
 ## Layout
 
 ```
@@ -54,6 +70,7 @@ app/rules.py      deal evaluation (pure, unit tested)
 app/notifier.py   Discord webhook embeds
 app/monitor.py    polling loop, dedupe, alert persistence
 app/main.py       FastAPI routes
+app/ebay_notifications.py  eBay account deletion challenge + notices
 app/static/       single-page UI (no build step)
 ```
 
