@@ -12,6 +12,8 @@ load_dotenv(ROOT / ".env")
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ROOT / ".env", extra="ignore")
 
+    # Hosted Postgres (Supabase) in production; the SQLite file is the fallback.
+    database_url: str = ""
     database_path: Path = ROOT / "data" / "poke_watcher.db"
 
     ebay_client_id: str = ""
@@ -28,6 +30,16 @@ class Settings(BaseSettings):
     poll_interval_seconds: int = 300
     price_refresh_hours: int = 12
     request_timeout_seconds: float = 30.0
+
+    @property
+    def sqlalchemy_url(self) -> str:
+        url = self.database_url.strip()
+        if not url:
+            return f"sqlite:///{self.database_path}"
+        for prefix in ("postgresql+psycopg://", "postgresql://", "postgres://"):
+            if url.startswith(prefix):
+                return "postgresql+psycopg://" + url[len(prefix) :]
+        return url
 
     @property
     def ebay_configured(self) -> bool:

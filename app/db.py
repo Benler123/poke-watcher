@@ -1,150 +1,257 @@
-import sqlite3
-import threading
-from collections.abc import Iterator
+"""Database access.
+
+Runs on Postgres when ``DATABASE_URL`` is set (Supabase in production) and on a
+local SQLite file otherwise, so tests and local runs need no server. Everything
+goes through SQLAlchemy Core so the same statements work on both.
+"""
+
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from pathlib import Path
+from functools import lru_cache
+from typing import Any
+
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    MetaData,
+    Table,
+    Text,
+    create_engine,
+    event,
+    func,
+    inspect,
+    text,
+)
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.sql import Executable
 
 from app.config import get_settings
 
-_local = threading.local()
+metadata = MetaData()
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS watches (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    label TEXT NOT NULL,
-    ebay_query TEXT NOT NULL,
-    product_id INTEGER,
-    sub_type_name TEXT,
-    set_name TEXT,
-    tcgplayer_url TEXT,
-    image_url TEXT,
-    market_price REAL,
-    market_price_updated_at TEXT,
-    manual_market_price REAL,
-    grade_company TEXT NOT NULL DEFAULT '',
-    grade_value TEXT NOT NULL DEFAULT '',
-    grade_price_multiplier REAL NOT NULL DEFAULT 1.0,
-    bin_max_pct_of_market REAL NOT NULL DEFAULT 1.0,
-    offer_max_pct_of_market REAL NOT NULL DEFAULT 1.15,
-    min_price REAL,
-    max_price REAL,
-    exclude_terms TEXT NOT NULL DEFAULT '',
-    active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    last_checked_at TEXT,
-    last_error TEXT
-);
+watches = Table(
+    "watches",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("label", Text, nullable=False),
+    Column("ebay_query", Text, nullable=False),
+    Column("product_type", Text, nullable=False, server_default="single"),
+    Column("product_id", Integer),
+    Column("sub_type_name", Text),
+    Column("set_name", Text),
+    Column("tcgplayer_url", Text),
+    Column("image_url", Text),
+    Column("market_price", Float),
+    Column("market_price_updated_at", DateTime(timezone=True)),
+    Column("manual_market_price", Float),
+    Column("grade_company", Text, nullable=False, server_default=""),
+    Column("grade_value", Text, nullable=False, server_default=""),
+    Column("grade_price_multiplier", Float, nullable=False, server_default="1.0"),
+    Column("bin_max_pct_of_market", Float, nullable=False, server_default="1.0"),
+    Column("offer_max_pct_of_market", Float, nullable=False, server_default="1.15"),
+    Column("min_price", Float),
+    Column("max_price", Float),
+    Column("exclude_terms", Text, nullable=False, server_default=""),
+    Column("active", Boolean, nullable=False, server_default=text("true")),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("last_checked_at", DateTime(timezone=True)),
+    Column("last_error", Text),
+)
 
-CREATE TABLE IF NOT EXISTS seen_listings (
-    watch_id INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,
-    listing_id TEXT NOT NULL,
-    first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (watch_id, listing_id)
-);
+seen_listings = Table(
+    "seen_listings",
+    metadata,
+    Column("watch_id", Integer, ForeignKey("watches.id", ondelete="CASCADE"), primary_key=True),
+    Column("listing_id", Text, primary_key=True),
+    Column("first_seen_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
 
-CREATE TABLE IF NOT EXISTS alerts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    watch_id INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,
-    listing_id TEXT NOT NULL,
-    item_id TEXT,
-    title TEXT NOT NULL,
-    url TEXT NOT NULL,
-    image_url TEXT,
-    price REAL NOT NULL,
-    shipping REAL NOT NULL DEFAULT 0,
-    total_price REAL NOT NULL,
-    currency TEXT NOT NULL DEFAULT 'USD',
-    best_offer INTEGER NOT NULL DEFAULT 0,
-    market_price REAL NOT NULL,
-    pct_of_market REAL NOT NULL,
-    reason TEXT NOT NULL,
-    notified INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
+alerts = Table(
+    "alerts",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("watch_id", Integer, ForeignKey("watches.id", ondelete="CASCADE"), nullable=False),
+    Column("listing_id", Text, nullable=False),
+    Column("item_id", Text),
+    Column("title", Text, nullable=False),
+    Column("url", Text, nullable=False),
+    Column("image_url", Text),
+    Column("price", Float, nullable=False),
+    Column("shipping", Float, nullable=False, server_default="0"),
+    Column("total_price", Float, nullable=False),
+    Column("currency", Text, nullable=False, server_default="USD"),
+    Column("best_offer", Boolean, nullable=False, server_default=text("false")),
+    Column("market_price", Float, nullable=False),
+    Column("pct_of_market", Float, nullable=False),
+    Column("reason", Text, nullable=False),
+    Column("notified", Boolean, nullable=False, server_default=text("false")),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
 
-CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
+settings_table = Table(
+    "settings",
+    metadata,
+    Column("key", Text, primary_key=True),
+    Column("value", Text, nullable=False),
+)
 
-CREATE TABLE IF NOT EXISTS tcg_products (
-    product_id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    clean_name TEXT NOT NULL,
-    group_id INTEGER NOT NULL,
-    group_name TEXT NOT NULL,
-    number TEXT,
-    rarity TEXT,
-    url TEXT,
-    image_url TEXT
-);
+tcg_products = Table(
+    "tcg_products",
+    metadata,
+    Column("product_id", Integer, primary_key=True, autoincrement=False),
+    Column("name", Text, nullable=False),
+    Column("clean_name", Text, nullable=False),
+    Column("group_id", Integer, nullable=False),
+    Column("group_name", Text, nullable=False),
+    Column("number", Text),
+    Column("rarity", Text),
+    Column("url", Text),
+    Column("image_url", Text),
+    Column("sealed", Boolean, nullable=False, server_default=text("false")),
+    Index("idx_tcg_products_clean_name", "clean_name"),
+)
 
-CREATE INDEX IF NOT EXISTS idx_tcg_products_clean_name ON tcg_products(clean_name);
-
-CREATE TABLE IF NOT EXISTS tcg_prices (
-    product_id INTEGER NOT NULL,
-    sub_type_name TEXT NOT NULL,
-    market_price REAL,
-    low_price REAL,
-    mid_price REAL,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (product_id, sub_type_name)
-);
-"""
+tcg_prices = Table(
+    "tcg_prices",
+    metadata,
+    Column("product_id", Integer, primary_key=True, autoincrement=False),
+    Column("sub_type_name", Text, primary_key=True),
+    Column("market_price", Float),
+    Column("low_price", Float),
+    Column("mid_price", Float),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
 
 
-def _connect() -> sqlite3.Connection:
+@lru_cache
+def get_engine() -> Engine:
     settings = get_settings()
-    path: Path = settings.database_path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
-    return conn
+    url = settings.sqlalchemy_url
+    kwargs: dict[str, Any] = {"pool_pre_ping": True, "future": True}
+    if url.startswith("sqlite"):
+        settings.database_path.parent.mkdir(parents=True, exist_ok=True)
+        kwargs["connect_args"] = {"check_same_thread": False}
+    else:
+        # Supabase's pooler runs pgbouncer in transaction mode, which cannot
+        # serve server-side prepared statements.
+        kwargs["connect_args"] = {"prepare_threshold": None}
+    engine = create_engine(url, **kwargs)
+    if url.startswith("sqlite"):
+        event.listen(engine, "connect", _enable_sqlite_foreign_keys)
+    return engine
 
 
-def get_connection() -> sqlite3.Connection:
-    conn = getattr(_local, "conn", None)
-    if conn is None:
-        conn = _connect()
-        _local.conn = conn
-    return conn
+def _enable_sqlite_foreign_keys(dbapi_connection: Any, _record: Any) -> None:
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys = ON")
+    cursor.close()
+
+
+def reset_engine() -> None:
+    """Drop the cached engine; used by tests that swap databases."""
+    if get_engine.cache_info().currsize:
+        get_engine().dispose()
+    get_engine.cache_clear()
+
+
+def is_postgres() -> bool:
+    return get_engine().dialect.name == "postgresql"
 
 
 @contextmanager
-def transaction() -> Iterator[sqlite3.Connection]:
-    conn = get_connection()
-    with conn:
+def transaction() -> Iterator[Connection]:
+    with get_engine().begin() as conn:
         yield conn
 
 
+def fetch_all(statement: Executable, conn: Connection | None = None) -> list[dict[str, Any]]:
+    if conn is not None:
+        return [dict(row) for row in conn.execute(statement).mappings()]
+    with get_engine().connect() as connection:
+        return [dict(row) for row in connection.execute(statement).mappings()]
+
+
+def fetch_one(statement: Executable, conn: Connection | None = None) -> dict[str, Any] | None:
+    rows = fetch_all(statement, conn)
+    return rows[0] if rows else None
+
+
+def scalar(statement: Executable) -> Any:
+    with get_engine().connect() as conn:
+        return conn.scalar(statement)
+
+
+def execute(statement: Executable) -> None:
+    with transaction() as conn:
+        conn.execute(statement)
+
+
+def _insert(table: Table) -> Any:
+    return pg_insert(table) if is_postgres() else sqlite_insert(table)
+
+
+def upsert(table: Table, rows: Sequence[Mapping[str, Any]], update_columns: Sequence[str]) -> None:
+    """Insert rows, overwriting ``update_columns`` on primary key conflicts."""
+    if not rows:
+        return
+    statement = _insert(table).values(list(rows))
+    statement = statement.on_conflict_do_update(
+        index_elements=[column.name for column in table.primary_key],
+        set_={name: getattr(statement.excluded, name) for name in update_columns},
+    )
+    execute(statement)
+
+
+def insert_if_absent(table: Table, values: Mapping[str, Any]) -> bool:
+    """Insert a row unless its primary key already exists. True if inserted."""
+    # RETURNING rather than rowcount: psycopg reports -1 for ON CONFLICT inserts.
+    first_key = next(iter(table.primary_key.columns))
+    statement = _insert(table).values(**values).on_conflict_do_nothing().returning(first_key)
+    with transaction() as conn:
+        return conn.execute(statement).first() is not None
+
+
+def insert_returning(table: Table, values: Mapping[str, Any]) -> dict[str, Any]:
+    with transaction() as conn:
+        row = conn.execute(table.insert().values(**values).returning(*table.c)).mappings().one()
+        return dict(row)
+
+
 def init_db() -> None:
-    conn = get_connection()
-    with conn:
-        conn.executescript(SCHEMA)
-        columns = {row["name"] for row in conn.execute("PRAGMA table_info(alerts)")}
-        if "item_id" not in columns:
-            conn.execute("ALTER TABLE alerts ADD COLUMN item_id TEXT")
-        watch_columns = {row["name"] for row in conn.execute("PRAGMA table_info(watches)")}
-        for name, definition in (
-            ("grade_company", "TEXT NOT NULL DEFAULT ''"),
-            ("grade_value", "TEXT NOT NULL DEFAULT ''"),
-            ("grade_price_multiplier", "REAL NOT NULL DEFAULT 1.0"),
-        ):
-            if name not in watch_columns:
-                conn.execute(f"ALTER TABLE watches ADD COLUMN {name} {definition}")
+    engine = get_engine()
+    metadata.create_all(engine)
+    _add_missing_columns(engine)
+
+
+def _add_missing_columns(engine: Engine) -> None:
+    """Bring a database created by an older release up to the current schema."""
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        for table in metadata.sorted_tables:
+            existing = {column["name"] for column in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in existing:
+                    continue
+                ddl = f"ALTER TABLE {table.name} ADD COLUMN {column.name} "
+                ddl += column.type.compile(engine.dialect)
+                if column.server_default is not None:
+                    ddl += f" DEFAULT {column.server_default.arg}"  # type: ignore[union-attr]
+                conn.execute(text(ddl))
 
 
 def get_setting(key: str, default: str = "") -> str:
-    row = get_connection().execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    row = fetch_one(
+        settings_table.select().where(settings_table.c.key == key)
+    )
     return row["value"] if row else default
 
 
 def set_setting(key: str, value: str) -> None:
-    with transaction() as conn:
-        conn.execute(
-            "INSERT INTO settings(key, value) VALUES(?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (key, value),
-        )
+    upsert(settings_table, [{"key": key, "value": value}], ["value"])
