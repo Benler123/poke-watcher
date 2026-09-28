@@ -95,6 +95,8 @@ button:hover { filter: brightness(1.1); }
 button.ghost { background: transparent; border-color: var(--border); color: var(--muted); font-weight: 500; }
 button.danger { background: transparent; border-color: #5b2b3d; color: #ff7a94; font-weight: 500; }
 
+.type-row { display: flex; gap: 16px; margin-bottom: 10px; }
+.type-row label { display: flex; align-items: center; gap: 6px; }
 .search-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .search-row input { flex: 1; min-width: 240px; }
 

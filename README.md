@@ -13,6 +13,15 @@ Two alert rules per watched card:
 Each listing alerts once per watch. The web UI shows the watchlist, per-card
 thresholds, and every alert that has fired.
 
+## Sealed products
+
+A watch is either a **single card** or a **sealed product** (booster boxes,
+ETBs, packs, cases — tcgcsv lists them alongside singles). Sealed watches search
+the sealed eBay categories with a new-condition filter and drop anything that
+comes back from the singles category; grade targeting is disabled for them, and
+the form pre-fills exclusions for opened/empty/damaged/proxy/repack/code-card
+listings.
+
 ## Graded cards
 
 A watch can target a grade (PSA / BGS / CGC / SGC / ACE / TAG plus a number, or
@@ -33,10 +42,10 @@ the percentage thresholds apply. A manual market price override is used as-is.
   parsing eBay search HTML, which eBay blocks from most datacenter IPs.
 - **Prices** — TCGplayer market prices from the free daily dumps at
   [tcgcsv.com](https://tcgcsv.com) (TCGplayer has no public price API). A local
-  SQLite index of every Pokémon product powers card search; build it once from
+  product index of every Pokémon product powers card search; build it once from
   the Settings tab. Any watch can also use a manual market price override.
 - **Notifications** — a Discord webhook URL, set in the Settings tab (stored in
-  SQLite) or via `DISCORD_WEBHOOK_URL`. Each alert carries direct action links:
+  the database) or via `DISCORD_WEBHOOK_URL`. Each alert carries direct action links:
   **Buy It Now** goes straight into eBay checkout (`/atc/binctr?item=…`) and
   **Make Offer** opens the listing with the Best Offer layer (`?boolp=1`), the
   same URLs eBay's own item page uses. Both prompt eBay sign-in if needed.
@@ -53,6 +62,23 @@ Open http://localhost:8000, go to **Settings → Rebuild card index** (a few
 minutes, ~20k cards), paste your Discord webhook, then add cards on the
 **Watchlist** tab. A background sweep runs every `POLL_INTERVAL_SECONDS`
 (default 300); "Check all now" runs one immediately.
+
+## Database
+
+Set `DATABASE_URL` to a Postgres connection string and the app keeps everything
+there (watches, alerts, settings, the product/price index); the schema is
+created on startup. With `DATABASE_URL` unset it falls back to a local SQLite
+file at `DATABASE_PATH` (default `data/poke_watcher.db`), which is fine for
+local development and tests.
+
+For Supabase, copy **Project Settings → Database → Connection string → URI** and
+substitute your database password. `postgres://`, `postgresql://` and
+`postgresql+psycopg://` are all accepted. Prefer the pooler host (port 6543) on
+platforms that open many short-lived connections.
+
+Moving off an existing SQLite deployment means pointing `DATABASE_URL` at
+Postgres and rebuilding the card index from the Settings tab; old watches are
+not copied across automatically.
 
 ## eBay account deletion endpoint
 
@@ -73,16 +99,15 @@ endpoint URL must match byte for byte — it is part of the hash.
 
 ## Deploying
 
-The app ships a `Dockerfile` (SQLite lives at `DATABASE_PATH`, default
-`/data/poke_watcher.db`, so mount a volume there) plus ready-made
-`render.yaml` and `fly.toml`:
+The app ships a `Dockerfile` plus ready-made `render.yaml` and `fly.toml`. State
+lives in Postgres, so no volume is needed — just set `DATABASE_URL`:
 
 ```bash
-# Render: New → Blueprint → point at this repo (render.yaml does the rest)
+# Render: New → Blueprint → point at this repo, then set DATABASE_URL,
+# EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, DISCORD_WEBHOOK_URL under Environment
 # Fly:
 fly launch --copy-config --no-deploy
-fly volumes create poke_watcher_data --size 1
-fly secrets set EBAY_CLIENT_ID=… EBAY_CLIENT_SECRET=… DISCORD_WEBHOOK_URL=…
+fly secrets set DATABASE_URL=… EBAY_CLIENT_ID=… EBAY_CLIENT_SECRET=… DISCORD_WEBHOOK_URL=…
 fly deploy
 ```
 
@@ -92,7 +117,7 @@ Then use the deployed `https://…/ebay/notifications` URL below.
 
 ```
 app/config.py     settings from .env
-app/db.py         SQLite schema + connection handling
+app/db.py         SQLAlchemy schema (Postgres or SQLite) + query helpers
 app/tcg.py        tcgcsv product index and TCGplayer market prices
 app/ebay.py       Browse API client, HTML scraper fallback, Listing model
 app/rules.py      deal evaluation (pure, unit tested)

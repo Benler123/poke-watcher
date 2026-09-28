@@ -60,3 +60,51 @@ def test_action_urls_absent_without_item_id():
     listing = Listing(listing_id="abc", title="t", url="https://www.ebay.com/itm/", price=1.0)
     assert listing.buy_now_url is None
     assert listing.offer_url is None
+
+
+def test_sealed_search_uses_ccg_category_and_keeps_only_sealed_leaves(monkeypatch):
+    import httpx
+
+    from app import ebay
+
+    captured: dict[str, object] = {}
+
+    def fake_get(self, url, params=None, headers=None):
+        captured["params"] = params
+        payload = {
+            "itemSummaries": [
+                {**ITEM, "itemId": "sealed", "categories": [{"categoryId": "261044"}]},
+                {**ITEM, "itemId": "single", "categories": [{"categoryId": "183454"}]},
+            ]
+        }
+        return httpx.Response(200, json=payload, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx.Client, "get", fake_get)
+    client = ebay.EbayBrowseClient("id", "secret")
+    monkeypatch.setattr(client, "token", lambda: "token")
+
+    listings = client.search("prismatic evolutions elite trainer box", product_type=ebay.SEALED)
+
+    assert captured["params"]["category_ids"] == ebay.CATEGORY_CCG
+    assert "conditions:{NEW}" in captured["params"]["filter"]
+    assert [listing.listing_id for listing in listings] == ["sealed"]
+
+
+def test_single_search_uses_singles_category(monkeypatch):
+    import httpx
+
+    from app import ebay
+
+    captured: dict[str, object] = {}
+
+    def fake_get(self, url, params=None, headers=None):
+        captured["params"] = params
+        return httpx.Response(200, json={"itemSummaries": []}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx.Client, "get", fake_get)
+    client = ebay.EbayBrowseClient("id", "secret")
+    monkeypatch.setattr(client, "token", lambda: "token")
+
+    client.search("charizard ex 199")
+
+    assert captured["params"]["category_ids"] == ebay.CATEGORY_CCG_SINGLES

@@ -5,17 +5,23 @@ group / product / price data as plain JSON, updated daily.
 """
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+from sqlalchemy import func, select
 
+from app import db
 from app.config import get_settings
-from app.db import get_connection, transaction
+from app.db import tcg_prices, tcg_products
 
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://tcgcsv.com/tcgplayer"
 POKEMON_CATEGORY_ID = 3
+
+SINGLE = "single"
+SEALED = "sealed"
 
 
 def _client() -> httpx.Client:
@@ -54,32 +60,38 @@ def fetch_prices(group_id: int) -> list[dict[str, Any]]:
         return response.json()["results"]
 
 
+def is_sealed(product: dict[str, Any]) -> bool:
+    """Whether a tcgcsv product is sealed product rather than a single card.
+
+    Singles carry a collector number and rarity in ``extendedData``; booster
+    boxes, ETBs, tins and the like carry neither.
+    """
+    return not _extended(product, "Number") and not _extended(product, "Rarity")
+
+
 def index_group(group_id: int, group_name: str) -> int:
     products = fetch_products(group_id)
     rows = [
-        (
-            product["productId"],
-            product["name"],
-            product.get("cleanName") or product["name"],
-            group_id,
-            group_name,
-            _extended(product, "Number"),
-            _extended(product, "Rarity"),
-            product.get("url"),
-            product.get("imageUrl"),
-        )
+        {
+            "product_id": product["productId"],
+            "name": product["name"],
+            "clean_name": product.get("cleanName") or product["name"],
+            "group_id": group_id,
+            "group_name": group_name,
+            "number": _extended(product, "Number"),
+            "rarity": _extended(product, "Rarity"),
+            "url": product.get("url"),
+            "image_url": product.get("imageUrl"),
+            "sealed": is_sealed(product),
+        }
         for product in products
     ]
-    with transaction() as conn:
-        conn.executemany(
-            "INSERT INTO tcg_products(product_id, name, clean_name, group_id, group_name,"
-            " number, rarity, url, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-            " ON CONFLICT(product_id) DO UPDATE SET name=excluded.name,"
-            " clean_name=excluded.clean_name, group_id=excluded.group_id,"
-            " group_name=excluded.group_name, number=excluded.number,"
-            " rarity=excluded.rarity, url=excluded.url, image_url=excluded.image_url",
-            rows,
-        )
+    db.upsert(
+        tcg_products,
+        rows,
+        ["name", "clean_name", "group_id", "group_name", "number", "rarity", "url",
+         "image_url", "sealed"],
+    )
     return len(rows)
 
 
@@ -98,26 +110,31 @@ def build_index(progress: dict[str, Any] | None = None) -> int:
 
 
 def index_size() -> int:
-    row = get_connection().execute("SELECT COUNT(*) AS n FROM tcg_products").fetchone()
-    return int(row["n"])
+    return int(db.scalar(select(func.count()).select_from(tcg_products)) or 0)
 
 
-def search_products(query: str, limit: int = 25) -> list[dict[str, Any]]:
+def search_products(
+    query: str, limit: int = 25, product_type: str | None = None
+) -> list[dict[str, Any]]:
     like = f"%{query.strip().lower()}%"
-    rows = get_connection().execute(
-        "SELECT * FROM tcg_products WHERE lower(clean_name) LIKE ?"
-        " OR lower(group_name || ' ' || clean_name) LIKE ?"
-        " ORDER BY length(clean_name) LIMIT ?",
-        (like, like, limit),
-    ).fetchall()
-    return [dict(row) for row in rows]
+    name = func.lower(tcg_products.c.clean_name)
+    full_name = func.lower(tcg_products.c.group_name + " " + tcg_products.c.clean_name)
+    statement = (
+        select(tcg_products)
+        .where(name.like(like) | full_name.like(like))
+        .order_by(func.length(tcg_products.c.clean_name))
+        .limit(limit)
+    )
+    if product_type in (SINGLE, SEALED):
+        statement = statement.where(tcg_products.c.sealed.is_(product_type == SEALED))
+    return db.fetch_all(statement)
 
 
 def refresh_price(product_id: int) -> dict[str, float | None]:
     """Fetch and cache the latest TCGplayer prices for a product's sub types."""
-    row = get_connection().execute(
-        "SELECT group_id FROM tcg_products WHERE product_id = ?", (product_id,)
-    ).fetchone()
+    row = db.fetch_one(
+        select(tcg_products.c.group_id).where(tcg_products.c.product_id == product_id)
+    )
     if row is None:
         raise LookupError(f"product {product_id} is not in the local index")
 
@@ -126,24 +143,21 @@ def refresh_price(product_id: int) -> dict[str, float | None]:
         for entry in fetch_prices(row["group_id"])
         if entry["productId"] == product_id
     }
-    with transaction() as conn:
-        conn.executemany(
-            "INSERT INTO tcg_prices(product_id, sub_type_name, market_price, low_price,"
-            " mid_price, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))"
-            " ON CONFLICT(product_id, sub_type_name) DO UPDATE SET"
-            " market_price=excluded.market_price, low_price=excluded.low_price,"
-            " mid_price=excluded.mid_price, updated_at=excluded.updated_at",
-            [
-                (
-                    product_id,
-                    sub_type,
-                    entry.get("marketPrice"),
-                    entry.get("lowPrice"),
-                    entry.get("midPrice"),
-                )
-                for sub_type, entry in prices.items()
-            ],
-        )
+    db.upsert(
+        tcg_prices,
+        [
+            {
+                "product_id": product_id,
+                "sub_type_name": sub_type,
+                "market_price": entry.get("marketPrice"),
+                "low_price": entry.get("lowPrice"),
+                "mid_price": entry.get("midPrice"),
+                "updated_at": datetime.now(timezone.utc),
+            }
+            for sub_type, entry in prices.items()
+        ],
+        ["market_price", "low_price", "mid_price", "updated_at"],
+    )
     return {sub_type: entry.get("marketPrice") for sub_type, entry in prices.items()}
 
 

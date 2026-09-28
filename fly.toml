@@ -6,11 +6,6 @@ primary_region = "iad"
 
 [env]
   PORT = "8080"
-  DATABASE_PATH = "/data/poke_watcher.db"
-
-[[mounts]]
-  source = "poke_watcher_data"
-  destination = "/data"
 
 [http_service]
   internal_port = 8080

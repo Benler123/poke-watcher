@@ -1,7 +1,12 @@
 const $ = (sel) => document.querySelector(sel);
 const money = (value) => (value == null ? "—" : `$${Number(value).toFixed(2)}`);
+const SEALED_EXCLUDES = "empty, opened, damaged, code card, proxy, repack";
 
 let selectedCard = null;
+
+const productType = () =>
+  document.querySelector("input[name=product_type]:checked").value;
+const isSealed = () => productType() === "sealed";
 
 const gradeLabel = (watch) => {
   const company = (watch.grade_company || "").toUpperCase();
@@ -52,11 +57,14 @@ async function loadHealth() {
 async function searchCards() {
   const query = $("#card-search").value.trim();
   if (!query) return;
-  const data = await api(`/api/cards/search?q=${encodeURIComponent(query)}`);
+  const data = await api(
+    `/api/cards/search?q=${encodeURIComponent(query)}&product_type=${productType()}`
+  );
   const list = $("#card-results");
   list.innerHTML = "";
   if (!data.results.length) {
-    list.innerHTML = `<li class="empty">No cards found${data.indexed ? "" : " — the card index is empty, build it in Settings"}.</li>`;
+    const what = isSealed() ? "sealed products" : "cards";
+    list.innerHTML = `<li class="empty">No ${what} found${data.indexed ? "" : " — the product index is empty, build it in Settings"}.</li>`;
     return;
   }
   data.results.forEach((card) => {
@@ -77,8 +85,13 @@ async function selectCard(card) {
   const form = $("#watch-form");
   form.classList.remove("hidden");
   form.querySelector("[name=label]").value = `${card.name} (${card.group_name})`;
-  form.querySelector("[name=ebay_query]").value =
-    `${card.name}${card.number ? ` ${card.number}` : ""}`.replace(/\s+/g, " ");
+  form.querySelector("[name=ebay_query]").value = (isSealed()
+    ? card.name
+    : `${card.name}${card.number ? ` ${card.number}` : ""}`
+  ).replace(/\s+/g, " ");
+  if (isSealed() && !form.querySelector("[name=exclude_terms]").value) {
+    form.querySelector("[name=exclude_terms]").value = SEALED_EXCLUDES;
+  }
   $("#selected-card").innerHTML = `
     ${card.image_url ? `<img src="${card.image_url}" alt="">` : ""}
     <div>
@@ -107,7 +120,30 @@ $("#card-search").addEventListener("keydown", (event) => {
   if (event.key === "Enter") searchCards();
 });
 
+function applyProductType() {
+  const sealed = isSealed();
+  document
+    .querySelectorAll(".grade-field")
+    .forEach((field) => field.classList.toggle("hidden", sealed));
+  $("#card-search").placeholder = sealed
+    ? "Search sealed product, e.g. Prismatic Evolutions Elite Trainer Box"
+    : "Search a card, e.g. Charizard ex 199";
+  $("#card-results").innerHTML = "";
+  $("#watch-form").classList.add("hidden");
+  selectedCard = null;
+  updateGradeHint();
+}
+
+document
+  .querySelectorAll("input[name=product_type]")
+  .forEach((radio) => radio.addEventListener("change", applyProductType));
+
 function updateGradeHint() {
+  if (isSealed()) {
+    $("#grade-hint").textContent =
+      "Sealed watches search eBay's sealed box/pack/deck/case categories for new listings only.";
+    return;
+  }
   const company = $("#grade-company").value;
   const grade = $("#grade-value").value.trim();
   const multiplier = Number($("#grade-multiplier").value || 1);
@@ -140,14 +176,15 @@ $("#watch-form").addEventListener("submit", async (event) => {
   const payload = {
     label: form.querySelector("[name=label]").value.trim(),
     ebay_query: form.querySelector("[name=ebay_query]").value.trim(),
+    product_type: productType(),
     product_id: selectedCard ? selectedCard.product_id : null,
     set_name: selectedCard ? selectedCard.group_name : null,
     tcgplayer_url: selectedCard ? selectedCard.url : null,
     image_url: selectedCard ? selectedCard.image_url : null,
     sub_type_name: $("#sub-type").value || null,
-    grade_company: $("#grade-company").value,
-    grade_value: $("#grade-value").value.trim(),
-    grade_price_multiplier: value("grade_price_multiplier") ?? 1,
+    grade_company: isSealed() ? "" : $("#grade-company").value,
+    grade_value: isSealed() ? "" : $("#grade-value").value.trim(),
+    grade_price_multiplier: isSealed() ? 1 : value("grade_price_multiplier") ?? 1,
     manual_market_price: value("manual_market_price"),
     bin_max_pct_of_market: (value("bin_max_pct_of_market") ?? 100) / 100,
     offer_max_pct_of_market: (value("offer_max_pct_of_market") ?? 115) / 100,
@@ -184,7 +221,7 @@ async function loadWatches() {
       <div class="grow">
         <div class="title">${watch.label}</div>
         <div class="sub">
-          query: <code>${watch.ebay_query}</code>${watch.sub_type_name ? ` · ${watch.sub_type_name}` : ""}${gradeLabel(watch) ? ` · <span class="tag">${gradeLabel(watch)}</span>` : ""}<br>
+          query: <code>${watch.ebay_query}</code>${watch.product_type === "sealed" ? ` · <span class="tag">Sealed</span>` : ""}${watch.sub_type_name ? ` · ${watch.sub_type_name}` : ""}${gradeLabel(watch) ? ` · <span class="tag">${gradeLabel(watch)}</span>` : ""}<br>
           market ${money(market)} · alert BIN &le; ${Math.round(watch.bin_max_pct_of_market * 100)}%
           · offer &le; ${Math.round(watch.offer_max_pct_of_market * 100)}%
           · ${watch.alert_count} alerts
@@ -340,6 +377,7 @@ $("#run-now").addEventListener("click", async (event) => {
 
 $("#refresh-alerts").addEventListener("click", loadAlerts);
 
+applyProductType();
 loadHealth();
 loadWatches();
 setInterval(loadHealth, 30000);

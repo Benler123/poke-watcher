@@ -21,7 +21,11 @@
 <main>
   <section id="watchlist" class="panel active">
     <div class="card">
-      <h2>Add a card to watch</h2>
+      <h2>Add something to watch</h2>
+      <div class="type-row">
+        <label><input type="radio" name="product_type" value="single" checked> Single card</label>
+        <label><input type="radio" name="product_type" value="sealed"> Sealed product</label>
+      </div>
       <div class="search-row">
         <input id="card-search" type="text" placeholder="Search a card, e.g. Charizard ex 199">
         <button id="card-search-btn">Search</button>
@@ -37,7 +41,7 @@
           <label>Printing
             <select name="sub_type_name" id="sub-type"></select>
           </label>
-          <label>Grade
+          <label class="grade-field">Grade
             <select name="grade_company" id="grade-company">
               <option value="">Any condition</option>
               <option value="RAW">Raw / ungraded only</option>
@@ -49,8 +53,8 @@
               <option value="TAG">TAG</option>
             </select>
           </label>
-          <label>Grade number<input name="grade_value" id="grade-value" type="number" step="0.5" min="1" max="10" placeholder="10"></label>
-          <label>Graded price multiplier<input name="grade_price_multiplier" id="grade-multiplier" type="number" step="0.1" min="0.1" value="1"></label>
+          <label class="grade-field">Grade number<input name="grade_value" id="grade-value" type="number" step="0.5" min="1" max="10" placeholder="10"></label>
+          <label class="grade-field">Graded price multiplier<input name="grade_price_multiplier" id="grade-multiplier" type="number" step="0.1" min="0.1" value="1"></label>
           <label>Market price override ($)<input name="manual_market_price" type="number" step="0.01" placeholder="auto from TCGplayer"></label>
           <label>Alert if BIN total &le; % of market<input name="bin_max_pct_of_market" type="number" step="1" value="100"></label>
           <label>Alert if Best Offer total &le; % of market<input name="offer_max_pct_of_market" type="number" step="1" value="115"></label>

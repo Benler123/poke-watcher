@@ -7,8 +7,8 @@ class StubEbay:
         self.listings = listings
         self.queries = []
 
-    def search(self, query, limit=50, max_price=None, singles_only=True):
-        self.queries.append((query, max_price))
+    def search(self, query, limit=50, max_price=None, product_type="single"):
+        self.queries.append((query, max_price, product_type))
         return self.listings
 
 
