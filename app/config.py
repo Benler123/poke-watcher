@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     ebay_client_secret: str = ""
     ebay_marketplace: str = "EBAY_US"
     ebay_search_limit: int = 50
+    # Delivery ZIP so eBay can quote calculated shipping.
+    ebay_ship_to_zip: str = ""
 
     # Marketplace account deletion notifications (required for production keys).
     ebay_verification_token: str = ""

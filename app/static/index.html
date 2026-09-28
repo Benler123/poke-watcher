@@ -98,6 +98,15 @@
       <p class="hint" id="webhook-status"></p>
     </div>
     <div class="card">
+      <h2>Shipping ZIP</h2>
+      <p class="hint">eBay only quotes calculated shipping for a delivery address. Alert totals include shipping to this ZIP.</p>
+      <div class="search-row">
+        <input id="ship-zip" type="text" inputmode="numeric" maxlength="5" placeholder="e.g. 94103">
+        <button id="save-zip">Save</button>
+      </div>
+      <p class="hint" id="ship-zip-status"></p>
+    </div>
+    <div class="card">
       <h2>eBay account deletion endpoint</h2>
       <p class="hint">eBay requires this before production API keys work. Paste the public URL of <code>/ebay/notifications</code>, generate a token, save, then register both on <a href="https://developer.ebay.com/my/keys" target="_blank" rel="noopener">developer.ebay.com/my/keys</a>.</p>
       <div class="search-row">

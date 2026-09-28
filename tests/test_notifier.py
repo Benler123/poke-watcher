@@ -44,3 +44,18 @@ def test_embed_keeps_canonical_listing_url():
 def test_embed_footer_names_the_watch():
     embed = build_embed(_listing(), WATCH, Match(UNDER_MARKET, 0.9), 220.0)
     assert embed["footer"]["text"] == "Watch #7: Charizard ex 199/165"
+
+
+def _field(embed, name):
+    return next(field["value"] for field in embed["fields"] if field["name"] == name)
+
+
+def test_embed_shipping_free_vs_unquoted():
+    free = build_embed(_listing(shipping=0.0), WATCH, Match(UNDER_MARKET, 0.9), 220.0)
+    assert _field(free, "Shipping") == "Free"
+    unquoted = build_embed(_listing(shipping=None), WATCH, Match(UNDER_MARKET, 0.9), 220.0)
+    assert _field(unquoted, "Shipping") == "Not quoted"
+    assert _field(unquoted, "Total") == "$200.00 + shipping"
+    paid = build_embed(_listing(shipping=4.5), WATCH, Match(UNDER_MARKET, 0.9), 220.0)
+    assert _field(paid, "Shipping") == "$4.50"
+    assert _field(paid, "Total") == "$204.50"

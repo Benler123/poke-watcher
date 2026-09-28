@@ -12,11 +12,13 @@ import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from bs4 import BeautifulSoup
 
 from app.config import get_settings
+from app.db import get_setting
 
 log = logging.getLogger(__name__)
 
@@ -63,7 +65,8 @@ class Listing:
     url: str
     price: float
     currency: str = "USD"
-    shipping: float = 0.0
+    # None when eBay gave no cost (calculated shipping without a delivery ZIP).
+    shipping: float | None = 0.0
     best_offer: bool = False
     buy_it_now: bool = True
     image_url: str | None = None
@@ -75,7 +78,11 @@ class Listing:
 
     @property
     def total_price(self) -> float:
-        return round(self.price + self.shipping, 2)
+        return round(self.price + (self.shipping or 0.0), 2)
+
+    @property
+    def shipping_known(self) -> bool:
+        return self.shipping is not None
 
     @property
     def is_sealed_category(self) -> bool:
@@ -103,10 +110,17 @@ class EbayError(RuntimeError):
 class EbayBrowseClient:
     """Thin wrapper over the eBay Browse API using client-credentials OAuth."""
 
-    def __init__(self, client_id: str, client_secret: str, marketplace: str = "EBAY_US") -> None:
+    def __init__(
+        self,
+        client_id: str,
+        client_secret: str,
+        marketplace: str = "EBAY_US",
+        ship_to_zip: str = "",
+    ) -> None:
         self.client_id = client_id
         self.client_secret = client_secret
         self.marketplace = marketplace
+        self.ship_to_zip = ship_to_zip
         self._token: str | None = None
         self._token_expires_at: float = 0.0
 
@@ -158,15 +172,14 @@ class EbayBrowseClient:
             "category_ids": CATEGORY_CCG if sealed else CATEGORY_CCG_SINGLES,
         }
 
+        headers = {
+            "Authorization": f"Bearer {self.token()}",
+            "X-EBAY-C-MARKETPLACE-ID": self.marketplace,
+        }
+        if self.ship_to_zip:
+            headers["X-EBAY-C-ENDUSERCTX"] = delivery_context(self.ship_to_zip)
         with httpx.Client(timeout=get_settings().request_timeout_seconds) as client:
-            response = client.get(
-                BROWSE_URL,
-                params=params,
-                headers={
-                    "Authorization": f"Bearer {self.token()}",
-                    "X-EBAY-C-MARKETPLACE-ID": self.marketplace,
-                },
-            )
+            response = client.get(BROWSE_URL, params=params, headers=headers)
         if response.status_code != 200:
             raise EbayError(f"Browse API error ({response.status_code}): {response.text[:300]}")
         listings = [
@@ -175,6 +188,15 @@ class EbayBrowseClient:
         if sealed:
             listings = [listing for listing in listings if listing.is_sealed_category]
         return listings
+
+
+def delivery_context(zip_code: str, country: str = "US") -> str:
+    """X-EBAY-C-ENDUSERCTX value; eBay only quotes calculated shipping with it."""
+    return f"contextualLocation={quote(f'country={country},zip={zip_code}', safe='')}"
+
+
+def ship_to_zip() -> str:
+    return get_setting("ship_to_zip") or get_settings().ebay_ship_to_zip
 
 
 _ITEM_ID_RE = re.compile(r"/itm/(?:[^/?]+/)?(\d{9,})")
@@ -198,7 +220,7 @@ def numeric_item_id(listing_id: str, url: str = "") -> str | None:
 def parse_browse_item(item: dict[str, Any]) -> Listing:
     price = float(item.get("price", {}).get("value", 0) or 0)
     currency = item.get("price", {}).get("currency", "USD")
-    shipping = 0.0
+    shipping: float | None = None
     for option in item.get("shippingOptions") or []:
         cost = option.get("shippingCost", {}).get("value")
         if cost is not None:
@@ -255,7 +277,8 @@ def parse_search_html(html: str) -> list[Listing]:
             continue
         text = node.get_text(" ", strip=True).lower()
         shipping_node = node.select_one(".s-item__shipping, .s-card__attribute-row")
-        shipping = _parse_price(shipping_node.get_text() if shipping_node else None) or 0.0
+        shipping_text = shipping_node.get_text() if shipping_node else ""
+        shipping = 0.0 if "free" in shipping_text.lower() else _parse_price(shipping_text)
         image = node.select_one("img")
         listings.append(
             Listing(
@@ -310,7 +333,10 @@ def get_client() -> EbayBrowseClient | EbayScrapeClient:
     settings = get_settings()
     if settings.ebay_configured:
         return EbayBrowseClient(
-            settings.ebay_client_id, settings.ebay_client_secret, settings.ebay_marketplace
+            settings.ebay_client_id,
+            settings.ebay_client_secret,
+            settings.ebay_marketplace,
+            ship_to_zip(),
         )
     log.warning("eBay API credentials missing; falling back to HTML scraping")
     return EbayScrapeClient()
