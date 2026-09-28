@@ -67,12 +67,11 @@ def record_market_price(watch_id: int, price: float | None) -> None:
     )
 
 
-def record_check(watch_id: int, error: str | None = None) -> None:
-    db.execute(
-        watches.update()
-        .where(watches.c.id == watch_id)
-        .values(last_checked_at=func.now(), last_error=error)
-    )
+def record_check(watch_id: int, error: str | None = None, seeded: bool = False) -> None:
+    values: dict[str, Any] = {"last_checked_at": func.now(), "last_error": error}
+    if seeded:
+        values["seeded"] = True
+    db.execute(watches.update().where(watches.c.id == watch_id).values(**values))
 
 
 def list_alerts(limit: int = 100, watch_id: int | None = None) -> list[dict[str, Any]]:
