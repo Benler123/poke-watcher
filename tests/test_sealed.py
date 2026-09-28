@@ -59,7 +59,6 @@ def test_sealed_watch_persists_type_and_drops_grade(app_client):
             "product_type": "sealed",
             "grade_company": "PSA",
             "grade_value": "10",
-            "grade_price_multiplier": 4.0,
             "manual_market_price": 120.0,
         },
     )
@@ -69,7 +68,6 @@ def test_sealed_watch_persists_type_and_drops_grade(app_client):
     assert watch["product_type"] == "sealed"
     assert watch["grade_company"] == ""
     assert watch["grade_value"] == ""
-    assert watch["grade_price_multiplier"] == 1.0
 
 
 def test_sealed_watch_searches_sealed_category(app_client, monkeypatch):

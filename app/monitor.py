@@ -49,37 +49,12 @@ def _age_seconds(value: Any) -> float | None:
     return (datetime.now(timezone.utc) - value).total_seconds()
 
 
-def resolve_market_price(watch: dict[str, Any], force: bool = False) -> float | None:
-    """Market price for the watch, scaled to its grade.
-
-    TCGplayer prices are for raw cards, so a graded watch multiplies them by
-    ``grade_price_multiplier``; a manual override is taken as-is.
-    """
-    if watch.get("manual_market_price"):
-        return float(watch["manual_market_price"])
-    multiplier = float(watch.get("grade_price_multiplier") or 1.0)
-    product_id = watch.get("product_id")
-    if not product_id:
-        return watch.get("market_price")
-
-    fresh_hours = get_settings().price_refresh_hours
-    if not force and watch.get("market_price"):
-        age = _age_seconds(watch.get("market_price_updated_at"))
-        if age is not None and age < fresh_hours * 3600:
-            return float(watch["market_price"])
-
-    price = tcg.market_price(int(product_id), watch.get("sub_type_name"))
-    if price is not None:
-        price *= multiplier
-    watches.record_market_price(watch["id"], price)
-    return price
-
-
 def check_watch(watch: dict[str, Any], client: Any, notify: bool = True) -> list[dict[str, Any]]:
-    market = resolve_market_price(watch)
+    market = watch.get("manual_market_price")
     if not market:
-        watches.record_check(watch["id"], "no market price available")
+        watches.record_check(watch["id"], "no market price set — use Market price to set one")
         return []
+    market = float(market)
 
     ceiling = market * max(
         float(watch.get("bin_max_pct_of_market") or 1.0),

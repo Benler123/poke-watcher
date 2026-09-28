@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "poke-watcher"
 version = "0.1.0"
-description = "Watches eBay for Pokemon card deals against TCGplayer market prices"
+description = "Watches eBay for Pokemon card deals against the market prices you set"
 authors = ["Benler123"]
 readme = "README.md"
 packages = [{ include = "app" }]
