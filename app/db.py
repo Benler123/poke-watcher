@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS watches (
     market_price REAL,
     market_price_updated_at TEXT,
     manual_market_price REAL,
+    grade_company TEXT NOT NULL DEFAULT '',
+    grade_value TEXT NOT NULL DEFAULT '',
+    grade_price_multiplier REAL NOT NULL DEFAULT 1.0,
     bin_max_pct_of_market REAL NOT NULL DEFAULT 1.0,
     offer_max_pct_of_market REAL NOT NULL DEFAULT 1.15,
     min_price REAL,
@@ -123,6 +126,14 @@ def init_db() -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(alerts)")}
         if "item_id" not in columns:
             conn.execute("ALTER TABLE alerts ADD COLUMN item_id TEXT")
+        watch_columns = {row["name"] for row in conn.execute("PRAGMA table_info(watches)")}
+        for name, definition in (
+            ("grade_company", "TEXT NOT NULL DEFAULT ''"),
+            ("grade_value", "TEXT NOT NULL DEFAULT ''"),
+            ("grade_price_multiplier", "REAL NOT NULL DEFAULT 1.0"),
+        ):
+            if name not in watch_columns:
+                conn.execute(f"ALTER TABLE watches ADD COLUMN {name} {definition}")
 
 
 def get_setting(key: str, default: str = "") -> str:

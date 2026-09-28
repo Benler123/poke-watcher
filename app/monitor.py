@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from app import ebay, notifier, tcg, watches
+from app import ebay, grading, notifier, tcg, watches
 from app.config import get_settings
 from app.db import get_connection, transaction
 from app.rules import evaluate
@@ -32,8 +32,14 @@ def _is_new_listing(watch_id: int, listing_id: str) -> bool:
 
 
 def resolve_market_price(watch: dict[str, Any], force: bool = False) -> float | None:
+    """Market price for the watch, scaled to its grade.
+
+    TCGplayer prices are for raw cards, so a graded watch multiplies them by
+    ``grade_price_multiplier``; a manual override is taken as-is.
+    """
     if watch.get("manual_market_price"):
         return float(watch["manual_market_price"])
+    multiplier = float(watch.get("grade_price_multiplier") or 1.0)
     product_id = watch.get("product_id")
     if not product_id:
         return watch.get("market_price")
@@ -51,6 +57,8 @@ def resolve_market_price(watch: dict[str, Any], force: bool = False) -> float | 
             pass
 
     price = tcg.market_price(int(product_id), watch.get("sub_type_name"))
+    if price is not None:
+        price *= multiplier
     watches.record_market_price(watch["id"], price)
     return price
 
@@ -66,7 +74,7 @@ def check_watch(watch: dict[str, Any], client: Any, notify: bool = True) -> list
         float(watch.get("offer_max_pct_of_market") or 1.15),
     )
     listings = client.search(
-        watch["ebay_query"], limit=get_settings().ebay_search_limit, max_price=ceiling
+        grading.search_query(watch), limit=get_settings().ebay_search_limit, max_price=ceiling
     )
 
     created: list[dict[str, Any]] = []

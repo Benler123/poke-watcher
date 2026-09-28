@@ -37,6 +37,20 @@
           <label>Printing
             <select name="sub_type_name" id="sub-type"></select>
           </label>
+          <label>Grade
+            <select name="grade_company" id="grade-company">
+              <option value="">Any condition</option>
+              <option value="RAW">Raw / ungraded only</option>
+              <option value="PSA">PSA</option>
+              <option value="BGS">BGS</option>
+              <option value="CGC">CGC</option>
+              <option value="SGC">SGC</option>
+              <option value="ACE">ACE</option>
+              <option value="TAG">TAG</option>
+            </select>
+          </label>
+          <label>Grade number<input name="grade_value" id="grade-value" type="number" step="0.5" min="1" max="10" placeholder="10"></label>
+          <label>Graded price multiplier<input name="grade_price_multiplier" id="grade-multiplier" type="number" step="0.1" min="0.1" value="1"></label>
           <label>Market price override ($)<input name="manual_market_price" type="number" step="0.01" placeholder="auto from TCGplayer"></label>
           <label>Alert if BIN total &le; % of market<input name="bin_max_pct_of_market" type="number" step="1" value="100"></label>
           <label>Alert if Best Offer total &le; % of market<input name="offer_max_pct_of_market" type="number" step="1" value="115"></label>
@@ -44,6 +58,7 @@
           <label>Max total ($)<input name="max_price" type="number" step="0.01" placeholder="optional"></label>
           <label class="wide">Exclude titles containing (comma separated)<input name="exclude_terms" placeholder="proxy, custom, lot, jumbo"></label>
         </div>
+        <p class="hint" id="grade-hint"></p>
         <div class="actions">
           <button type="submit">Add to watchlist</button>
           <button type="button" id="cancel-watch" class="ghost">Cancel</button>

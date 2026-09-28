@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app import ebay, ebay_notifications, monitor, notifier, tcg, watches
+from app import ebay, ebay_notifications, grading, monitor, notifier, tcg, watches
 from app.config import get_settings
 from app.db import get_setting, init_db, set_setting
 
@@ -42,6 +42,9 @@ class WatchIn(BaseModel):
     tcgplayer_url: str | None = None
     image_url: str | None = None
     manual_market_price: float | None = None
+    grade_company: str = ""
+    grade_value: str = ""
+    grade_price_multiplier: float = 1.0
     bin_max_pct_of_market: float = 1.0
     offer_max_pct_of_market: float = 1.15
     min_price: float | None = None
@@ -55,6 +58,9 @@ class WatchPatch(BaseModel):
     ebay_query: str | None = None
     sub_type_name: str | None = None
     manual_market_price: float | None = None
+    grade_company: str | None = None
+    grade_value: str | None = None
+    grade_price_multiplier: float | None = None
     bin_max_pct_of_market: float | None = None
     offer_max_pct_of_market: float | None = None
     min_price: float | None = None
@@ -68,6 +74,14 @@ class SettingsIn(BaseModel):
     ebay_verification_token: str | None = None
     ebay_notification_endpoint: str | None = None
     forward_deletion_notices: bool | None = None
+
+
+def _normalize_grade(data: dict[str, Any]) -> dict[str, Any]:
+    if "grade_company" in data:
+        data["grade_company"] = grading.normalize_company(data["grade_company"])
+    if "grade_value" in data:
+        data["grade_value"] = grading.normalize_value(data["grade_value"])
+    return data
 
 
 @app.get("/api/health")
@@ -112,7 +126,7 @@ def get_watches() -> list[dict[str, Any]]:
 
 @app.post("/api/watches", status_code=201)
 def post_watch(payload: WatchIn) -> dict[str, Any]:
-    data = payload.model_dump()
+    data = _normalize_grade(payload.model_dump())
     data["active"] = int(data["active"])
     watch = watches.create_watch(data)
     try:
@@ -126,7 +140,9 @@ def post_watch(payload: WatchIn) -> dict[str, Any]:
 
 @app.patch("/api/watches/{watch_id}")
 def patch_watch(watch_id: int, payload: WatchPatch) -> dict[str, Any]:
-    data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    data = _normalize_grade(
+        {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    )
     if "active" in data:
         data["active"] = int(data["active"])
     watch = watches.update_watch(watch_id, data)
