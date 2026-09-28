@@ -59,6 +59,23 @@ endpoint** paste that public URL, hit **Generate** for a token, save, and
 register the same URL + token on https://developer.ebay.com/my/keys. The
 endpoint URL must match byte for byte — it is part of the hash.
 
+## Deploying
+
+The app ships a `Dockerfile` (SQLite lives at `DATABASE_PATH`, default
+`/data/poke_watcher.db`, so mount a volume there) plus ready-made
+`render.yaml` and `fly.toml`:
+
+```bash
+# Render: New → Blueprint → point at this repo (render.yaml does the rest)
+# Fly:
+fly launch --copy-config --no-deploy
+fly volumes create poke_watcher_data --size 1
+fly secrets set EBAY_CLIENT_ID=… EBAY_CLIENT_SECRET=… DISCORD_WEBHOOK_URL=…
+fly deploy
+```
+
+Then use the deployed `https://…/ebay/notifications` URL below.
+
 ## Layout
 
 ```
