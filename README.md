@@ -33,6 +33,12 @@ tcgcsv prices are for raw cards, so a graded watch multiplies the market price
 by `grade_price_multiplier` (e.g. `4` if PSA 10 copies sell for ~4× raw) before
 the percentage thresholds apply. A manual market price override is used as-is.
 
+## First check after adding a watch
+
+A watch's first sweep records the listings that already match without alerting —
+they are not new, and there can be dozens of them. Alerts start from the next
+sweep, when a listing appears that was not up when the watch was created.
+
 ## Data sources
 
 - **Listings** — eBay [Browse API](https://developer.ebay.com/api-docs/buy/browse/overview.html),

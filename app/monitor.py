@@ -73,6 +73,9 @@ def resolve_market_price(watch: dict[str, Any], force: bool = False) -> float | 
 
 
 def check_watch(watch: dict[str, Any], client: Any, notify: bool = True) -> list[dict[str, Any]]:
+    # A watch's first sweep only records what is already listed: those listings are
+    # not new, and alerting on all of them floods Discord.
+    seeding = not watch.get("seeded")
     market = resolve_market_price(watch)
     if not market:
         watches.record_check(watch["id"], "no market price available")
@@ -94,7 +97,7 @@ def check_watch(watch: dict[str, Any], client: Any, notify: bool = True) -> list
         match = evaluate(listing, watch, market)
         if match is None:
             continue
-        if not _is_new_listing(watch["id"], listing.listing_id):
+        if not _is_new_listing(watch["id"], listing.listing_id) or seeding:
             continue
         notified = notifier.send_alert(listing, watch, match, market) if notify else False
         created.append(
@@ -120,7 +123,7 @@ def check_watch(watch: dict[str, Any], client: Any, notify: bool = True) -> list
             )
         )
 
-    watches.record_check(watch["id"], None)
+    watches.record_check(watch["id"], None, seeded=True)
     return created
 
 

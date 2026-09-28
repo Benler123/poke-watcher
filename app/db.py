@@ -62,6 +62,7 @@ watches = Table(
     Column("active", Boolean, nullable=False, server_default=text("true")),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("last_checked_at", DateTime(timezone=True)),
+    Column("seeded", Boolean, nullable=False, server_default=text("false")),
     Column("last_error", Text),
 )
 
