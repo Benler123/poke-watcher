@@ -83,7 +83,7 @@
     </div>
     <div class="card">
       <h2>eBay account deletion endpoint</h2>
-      <p class="hint">eBay requires this before production API keys work. Paste the public URL of <code>/ebay/notifications</code>, generate a token, save, then register both on <a href="https://developer.ebay.com/my/keys" target="_blank" rel="noopener">developer.ebay.com/my/keys</a>. Deletion notices are forwarded to Discord.</p>
+      <p class="hint">eBay requires this before production API keys work. Paste the public URL of <code>/ebay/notifications</code>, generate a token, save, then register both on <a href="https://developer.ebay.com/my/keys" target="_blank" rel="noopener">developer.ebay.com/my/keys</a>.</p>
       <div class="search-row">
         <input id="notify-endpoint" type="text" placeholder="https://your-app.fly.dev/ebay/notifications">
         <button id="save-notify">Save</button>
@@ -92,6 +92,10 @@
         <input id="notify-token" type="text" placeholder="verification token (32-80 chars)">
         <button id="gen-token" class="ghost">Generate</button>
       </div>
+      <label class="checkbox">
+        <input id="notify-forward" type="checkbox">
+        Forward deletion notices to Discord (eBay sends one per closed account, so this is noisy)
+      </label>
       <p class="hint" id="notify-status"></p>
     </div>
     <div class="card">

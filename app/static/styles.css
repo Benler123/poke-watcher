@@ -178,3 +178,14 @@ pre {
 }
 
 .empty { color: var(--muted); font-size: 14px; padding: 8px 2px; }
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.checkbox input { width: auto; }
