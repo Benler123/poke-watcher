@@ -1,13 +1,13 @@
 # Poke Watcher
 
 Watches eBay for newly listed Pokémon cards and pings a Discord webhook when a
-Buy It Now listing looks like a deal against the TCGplayer market price.
+Buy It Now listing looks like a deal against the market price you set for it.
 
 Two alert rules per watched card:
 
 | Rule | Fires when |
 | --- | --- |
-| `under_market` | Buy It Now total (price + shipping) is at or under *X%* of TCGplayer market (default 100%) |
+| `under_market` | Buy It Now total (price + shipping) is at or under *X%* of market (default 100%) |
 | `offer_near_market` | Listing accepts Best Offers and its total is at or under *Y%* of market (default 115%) |
 
 Each listing alerts once per watch. The web UI shows the watchlist, per-card
@@ -45,9 +45,13 @@ A watch can target a grade (PSA / BGS / CGC / SGC / ACE / TAG plus a number, or
 matched against it — `PSA 10`, `psa10` and `PSA-10` all count, `PSA 9` and raw
 copies do not; a raw watch rejects anything that looks slabbed.
 
-tcgcsv prices are for raw cards, so a graded watch multiplies the market price
-by `grade_price_multiplier` (e.g. `4` if PSA 10 copies sell for ~4× raw) before
-the percentage thresholds apply. A manual market price override is used as-is.
+Set a graded watch's market price to what that grade sells for.
+
+## First check after adding a watch
+
+A watch's first sweep records the listings that already match without alerting —
+they are not new, and there can be dozens of them. Alerts start from the next
+sweep, when a listing appears that was not up when the watch was created.
 
 ## Data sources
 
@@ -56,13 +60,13 @@ the percentage thresholds apply. A manual market price override is used as-is.
   `EBAY_CLIENT_ID` / `EBAY_CLIENT_SECRET` from a production keyset at
   https://developer.ebay.com/my/keys. Without credentials the app falls back to
   parsing eBay search HTML, which eBay blocks from most datacenter IPs.
-- **Prices** — TCGplayer market prices from the free daily dumps at
-  [tcgcsv.com](https://tcgcsv.com) (TCGplayer has no public price API). A local
-  product index of every Pokémon product powers card search. It builds
+- **Prices** — every watch uses a market price you set when adding it; change
+  it later via "Market price" in the watch list. No price source is queried.
+- **Card search** — a local index of every Pokémon product from TCGplayer's
+  catalog, via the free daily dumps at [tcgcsv.com](https://tcgcsv.com). It builds
   automatically when the database is empty and rebuilds every
   `INDEX_REFRESH_HOURS` (default 24) so new sets appear; **Settings → Rebuild
-  card index** forces a rebuild. Any watch can also use a manual market price
-  override.
+  card index** forces a rebuild.
 - **Notifications** — a Discord webhook URL, set in the Settings tab (stored in
   the database) or via `DISCORD_WEBHOOK_URL`. Each alert carries direct action links:
   **Buy It Now** goes straight into eBay checkout (`/atc/binctr?item=…`) and
@@ -86,7 +90,7 @@ immediately.
 ## Database
 
 Set `DATABASE_URL` to a Postgres connection string and the app keeps everything
-there (watches, alerts, settings, the product/price index); the schema is
+there (watches, alerts, settings, the card index); the schema is
 created on startup. With `DATABASE_URL` unset it falls back to a local SQLite
 file at `DATABASE_PATH` (default `data/poke_watcher.db`), which is fine for
 local development and tests.
@@ -138,7 +142,7 @@ Then use the deployed `https://…/ebay/notifications` URL below.
 ```
 app/config.py     settings from .env
 app/db.py         SQLAlchemy schema (Postgres or SQLite) + query helpers
-app/tcg.py        tcgcsv product index and TCGplayer market prices
+app/tcg.py        tcgcsv product index for card search
 app/ebay.py       Browse API client, HTML scraper fallback, Listing model
 app/rules.py      deal evaluation (pure, unit tested)
 app/notifier.py   Discord webhook embeds

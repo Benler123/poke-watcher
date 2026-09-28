@@ -12,14 +12,12 @@ FIELDS = (
     "ebay_query",
     "product_type",
     "product_id",
-    "sub_type_name",
     "set_name",
     "tcgplayer_url",
     "image_url",
     "manual_market_price",
     "grade_company",
     "grade_value",
-    "grade_price_multiplier",
     "bin_max_pct_of_market",
     "offer_max_pct_of_market",
     "min_price",
@@ -70,12 +68,11 @@ def record_market_price(watch_id: int, price: float | None) -> None:
     )
 
 
-def record_check(watch_id: int, error: str | None = None) -> None:
-    db.execute(
-        watches.update()
-        .where(watches.c.id == watch_id)
-        .values(last_checked_at=func.now(), last_error=error)
-    )
+def record_check(watch_id: int, error: str | None = None, seeded: bool = False) -> None:
+    values: dict[str, Any] = {"last_checked_at": func.now(), "last_error": error}
+    if seeded:
+        values["seeded"] = True
+    db.execute(watches.update().where(watches.c.id == watch_id).values(**values))
 
 
 def list_alerts(limit: int = 100, watch_id: int | None = None) -> list[dict[str, Any]]:

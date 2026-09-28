@@ -44,7 +44,6 @@ watches = Table(
     Column("ebay_query", Text, nullable=False),
     Column("product_type", Text, nullable=False, server_default="single"),
     Column("product_id", Integer),
-    Column("sub_type_name", Text),
     Column("set_name", Text),
     Column("tcgplayer_url", Text),
     Column("image_url", Text),
@@ -53,7 +52,6 @@ watches = Table(
     Column("manual_market_price", Float),
     Column("grade_company", Text, nullable=False, server_default=""),
     Column("grade_value", Text, nullable=False, server_default=""),
-    Column("grade_price_multiplier", Float, nullable=False, server_default="1.0"),
     Column("bin_max_pct_of_market", Float, nullable=False, server_default="1.0"),
     Column("offer_max_pct_of_market", Float, nullable=False, server_default="1.15"),
     Column("min_price", Float),
@@ -63,6 +61,7 @@ watches = Table(
     Column("active", Boolean, nullable=False, server_default=text("true")),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("last_checked_at", DateTime(timezone=True)),
+    Column("seeded", Boolean, nullable=False, server_default=text("false")),
     Column("last_error", Text),
 )
 
@@ -118,18 +117,6 @@ tcg_products = Table(
     Column("sealed", Boolean, nullable=False, server_default=text("false")),
     Index("idx_tcg_products_clean_name", "clean_name"),
 )
-
-tcg_prices = Table(
-    "tcg_prices",
-    metadata,
-    Column("product_id", Integer, primary_key=True, autoincrement=False),
-    Column("sub_type_name", Text, primary_key=True),
-    Column("market_price", Float),
-    Column("low_price", Float),
-    Column("mid_price", Float),
-    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
-)
-
 
 @lru_cache
 def get_engine() -> Engine:

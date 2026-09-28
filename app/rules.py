@@ -11,7 +11,7 @@ UNDER_MARKET = "under_market"
 OFFER_NEAR_MARKET = "offer_near_market"
 
 REASON_LABELS = {
-    UNDER_MARKET: "Buy It Now under TCGplayer market",
+    UNDER_MARKET: "Buy It Now under market",
     OFFER_NEAR_MARKET: "Near market with Best Offer",
 }
 

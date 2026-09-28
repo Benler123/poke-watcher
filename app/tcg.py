@@ -1,11 +1,10 @@
-"""TCGplayer market prices via the free tcgcsv.com daily dumps.
+"""TCGplayer product index (card search) via the free tcgcsv.com daily dumps.
 
 TCGplayer has no public price API. tcgcsv.com mirrors TCGplayer's category /
 group / product / price data as plain JSON, updated daily.
 """
 
 import logging
-from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -13,7 +12,7 @@ from sqlalchemy import func, select
 
 from app import db
 from app.config import get_settings
-from app.db import tcg_prices, tcg_products
+from app.db import tcg_products
 
 log = logging.getLogger(__name__)
 
@@ -132,47 +131,3 @@ def search_products(
 
 def get_product(product_id: int) -> dict[str, Any] | None:
     return db.fetch_one(select(tcg_products).where(tcg_products.c.product_id == product_id))
-
-
-def refresh_price(product_id: int) -> dict[str, float | None]:
-    """Fetch and cache the latest TCGplayer prices for a product's sub types."""
-    row = db.fetch_one(
-        select(tcg_products.c.group_id).where(tcg_products.c.product_id == product_id)
-    )
-    if row is None:
-        raise LookupError(f"product {product_id} is not in the local index")
-
-    prices = {
-        entry["subTypeName"]: entry
-        for entry in fetch_prices(row["group_id"])
-        if entry["productId"] == product_id
-    }
-    db.upsert(
-        tcg_prices,
-        [
-            {
-                "product_id": product_id,
-                "sub_type_name": sub_type,
-                "market_price": entry.get("marketPrice"),
-                "low_price": entry.get("lowPrice"),
-                "mid_price": entry.get("midPrice"),
-                "updated_at": datetime.now(timezone.utc),
-            }
-            for sub_type, entry in prices.items()
-        ],
-        ["market_price", "low_price", "mid_price", "updated_at"],
-    )
-    return {sub_type: entry.get("marketPrice") for sub_type, entry in prices.items()}
-
-
-def market_price(product_id: int, sub_type_name: str | None = None) -> float | None:
-    prices = refresh_price(product_id)
-    if not prices:
-        return None
-    if sub_type_name and prices.get(sub_type_name) is not None:
-        return prices[sub_type_name]
-    for preferred in ("Holofoil", "Normal", "1st Edition Holofoil", "Unlimited Holofoil"):
-        if prices.get(preferred) is not None:
-            return prices[preferred]
-    values = [value for value in prices.values() if value is not None]
-    return values[0] if values else None

@@ -42,14 +42,12 @@ class WatchIn(BaseModel):
     ebay_query: str = Field(min_length=1)
     product_type: Literal["single", "sealed"] = "single"
     product_id: int | None = None
-    sub_type_name: str | None = None
     set_name: str | None = None
     tcgplayer_url: str | None = None
     image_url: str | None = None
-    manual_market_price: float | None = None
+    manual_market_price: float = Field(gt=0)
     grade_company: str = ""
     grade_value: str = ""
-    grade_price_multiplier: float = 1.0
     bin_max_pct_of_market: float = 1.0
     offer_max_pct_of_market: float = 1.15
     min_price: float | None = None
@@ -63,11 +61,9 @@ class WatchPatch(BaseModel):
     label: str | None = None
     ebay_query: str | None = None
     product_type: Literal["single", "sealed"] | None = None
-    sub_type_name: str | None = None
-    manual_market_price: float | None = None
+    manual_market_price: float | None = Field(default=None, gt=0)
     grade_company: str | None = None
     grade_value: str | None = None
-    grade_price_multiplier: float | None = None
     bin_max_pct_of_market: float | None = None
     offer_max_pct_of_market: float | None = None
     min_price: float | None = None
@@ -87,7 +83,7 @@ class SettingsIn(BaseModel):
 def _normalize_grade(data: dict[str, Any], product_type: str | None) -> dict[str, Any]:
     """Grades only apply to singles; sealed product is graded by nobody."""
     if product_type == tcg.SEALED:
-        data.update(grade_company="", grade_value="", grade_price_multiplier=1.0)
+        data.update(grade_company="", grade_value="")
         return data
     if "grade_company" in data:
         data["grade_company"] = grading.normalize_company(data["grade_company"])
@@ -123,14 +119,6 @@ async def index_cards() -> dict[str, Any]:
     return {"status": "started"}
 
 
-@app.get("/api/cards/{product_id}/price")
-def card_price(product_id: int) -> dict[str, Any]:
-    try:
-        return {"product_id": product_id, "prices": tcg.refresh_price(product_id)}
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
 @app.get("/api/watches")
 def get_watches() -> list[dict[str, Any]]:
     return watches.list_watches()
@@ -140,10 +128,7 @@ def get_watches() -> list[dict[str, Any]]:
 def post_watch(payload: WatchIn) -> dict[str, Any]:
     data = _normalize_grade(payload.model_dump(), payload.product_type)
     watch = watches.create_watch(data)
-    try:
-        watches.record_market_price(watch["id"], monitor.resolve_market_price(watch, force=True))
-    except Exception as exc:  # noqa: BLE001 - price lookup is best effort at create time
-        watches.record_check(watch["id"], f"price lookup failed: {exc}")
+    watches.record_market_price(watch["id"], payload.manual_market_price)
     created = watches.get_watch(watch["id"])
     assert created is not None
     return created
@@ -159,6 +144,10 @@ def patch_watch(watch_id: int, payload: WatchPatch) -> dict[str, Any]:
     watch = watches.update_watch(watch_id, data)
     if watch is None:
         raise HTTPException(status_code=404, detail="watch not found")
+    if "manual_market_price" in data:
+        watches.record_market_price(watch_id, data["manual_market_price"])
+        watch = watches.get_watch(watch_id)
+        assert watch is not None
     return watch
 
 
