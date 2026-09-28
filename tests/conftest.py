@@ -4,6 +4,9 @@ from pathlib import Path
 
 import pytest
 
+# Keep TestClient startups from building the card index against tcgcsv.com.
+os.environ["INDEX_REFRESH_HOURS"] = "0"
+
 
 @pytest.fixture
 def app_client(monkeypatch):
