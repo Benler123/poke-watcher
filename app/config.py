@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     ebay_verification_token: str = ""
     ebay_notification_endpoint: str = ""
 
+    # Also search Fanatics Collect for watches that have it enabled.
+    fanatics_enabled: bool = True
+
     discord_webhook_url: str = ""
 
     poll_interval_seconds: int = 300

@@ -60,6 +60,14 @@ sweep, when a listing appears that was not up when the watch was created.
   `EBAY_CLIENT_ID` / `EBAY_CLIENT_SECRET` from a production keyset at
   https://developer.ebay.com/my/keys. Without credentials the app falls back to
   parsing eBay search HTML, which eBay blocks from most datacenter IPs.
+- **Fanatics Collect** — live Buy Now listings from the Fanatics Collect
+  marketplace, newest first, limited to its English Pokémon category. It uses
+  the same public search the site does (an anonymous key from its GraphQL API,
+  then its Algolia index), so no account is needed. Each watch has eBay /
+  Fanatics Collect checkboxes; a source's first sweep seeds silently like a new
+  watch, so enabling Fanatics on an existing watch does not flood Discord.
+  Fanatics prices exclude shipping, and the alert links to the listing page,
+  where Buy Now and Make Offer live. `FANATICS_ENABLED=false` turns it off.
 - **Prices** — every watch uses a market price you set when adding it; change
   it later via "Market price" in the watch list. No price source is queried.
 - **Card search** — a local index of every Pokémon product from TCGplayer's

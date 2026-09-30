@@ -171,6 +171,16 @@ label.wide { grid-column: 1 / -1; }
   white-space: nowrap;
 }
 
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.checkbox-row .checkbox { margin-top: 0; }
+
 .tag.warn { background: rgba(245, 196, 81, 0.15); color: var(--warn); }
 .tag.err { background: rgba(255, 122, 148, 0.15); color: #ff7a94; }
 

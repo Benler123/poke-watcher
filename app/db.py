@@ -62,6 +62,9 @@ watches = Table(
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("last_checked_at", DateTime(timezone=True)),
     Column("seeded", Boolean, nullable=False, server_default=text("false")),
+    Column("search_ebay", Boolean, nullable=False, server_default=text("true")),
+    Column("search_fanatics", Boolean, nullable=False, server_default=text("true")),
+    Column("fanatics_seeded", Boolean, nullable=False, server_default=text("false")),
     Column("last_error", Text),
 )
 
@@ -79,6 +82,7 @@ alerts = Table(
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("watch_id", Integer, ForeignKey("watches.id", ondelete="CASCADE"), nullable=False),
     Column("listing_id", Text, nullable=False),
+    Column("source", Text, nullable=False, server_default="ebay"),
     Column("item_id", Text),
     Column("title", Text, nullable=False),
     Column("url", Text, nullable=False),
@@ -230,7 +234,10 @@ def _add_missing_columns(engine: Engine) -> None:
                 ddl = f"ALTER TABLE {table.name} ADD COLUMN {column.name} "
                 ddl += column.type.compile(engine.dialect)
                 if column.server_default is not None:
-                    ddl += f" DEFAULT {column.server_default.arg}"  # type: ignore[union-attr]
+                    default = column.server_default.arg  # type: ignore[union-attr]
+                    if isinstance(default, str):
+                        default = "'" + default.replace("'", "''") + "'"
+                    ddl += f" DEFAULT {default}"
                 conn.execute(text(ddl))
 
 

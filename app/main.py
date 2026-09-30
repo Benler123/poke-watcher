@@ -9,7 +9,16 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app import ebay, ebay_notifications, grading, monitor, notifier, tcg, watches
+from app import (
+    ebay,
+    ebay_notifications,
+    fanatics,
+    grading,
+    monitor,
+    notifier,
+    tcg,
+    watches,
+)
 from app.config import get_settings
 from app.db import get_setting, init_db, set_setting
 
@@ -54,6 +63,8 @@ class WatchIn(BaseModel):
     max_price: float | None = None
     exclude_terms: str = ""
     strict_match: bool = True
+    search_ebay: bool = True
+    search_fanatics: bool = True
     active: bool = True
 
 
@@ -70,6 +81,8 @@ class WatchPatch(BaseModel):
     max_price: float | None = None
     exclude_terms: str | None = None
     strict_match: bool | None = None
+    search_ebay: bool | None = None
+    search_fanatics: bool | None = None
     active: bool | None = None
 
 
@@ -98,6 +111,7 @@ def health() -> dict[str, Any]:
     return {
         "ok": True,
         "ebay_source": "browse_api" if settings.ebay_configured else "html_scrape",
+        "fanatics_enabled": settings.fanatics_enabled,
         "discord_configured": bool(notifier.webhook_url()),
         "poll_interval_seconds": settings.poll_interval_seconds,
         "monitor": monitor.status,
@@ -162,8 +176,10 @@ def check_watch_now(watch_id: int) -> dict[str, Any]:
     if watch is None:
         raise HTTPException(status_code=404, detail="watch not found")
     try:
-        alerts = monitor.check_watch(watch, ebay.get_client())
-    except ebay.EbayError as exc:
+        alerts = monitor.check_watch(
+            watch, ebay.get_client(), fanatics_client=fanatics.get_client()
+        )
+    except (ebay.EbayError, fanatics.FanaticsError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"alerts": alerts, "watch": watches.get_watch(watch_id)}
 

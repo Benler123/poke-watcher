@@ -71,6 +71,8 @@ class Listing:
     seller: str | None = None
     item_id: str | None = None
     category_ids: tuple[str, ...] = ()
+    source: str = "ebay"
+    shipping_known: bool = True
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property

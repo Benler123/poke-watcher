@@ -22,8 +22,24 @@ def webhook_url() -> str:
     return get_setting("discord_webhook_url") or get_settings().discord_webhook_url
 
 
+SOURCE_NAMES = {"ebay": "eBay", "fanatics": "Fanatics Collect"}
+
+
+def source_name(listing: Listing) -> str:
+    return SOURCE_NAMES.get(listing.source, listing.source)
+
+
+def shipping_text(listing: Listing) -> str:
+    if not listing.shipping_known:
+        return "Not included"
+    return "Free" if listing.shipping == 0 else f"${listing.shipping:,.2f}"
+
+
 def action_links(listing: Listing) -> str:
     """Markdown links that jump straight into checkout / the offer layer."""
+    if listing.source != "ebay":
+        verb = "Buy / Make Offer" if listing.best_offer else "Buy Now"
+        return f"[{verb} on {source_name(listing)}]({listing.url})"
     links = []
     if listing.buy_now_url:
         links.append(f"[Buy It Now]({listing.buy_now_url})")
@@ -41,14 +57,12 @@ def build_embed(listing: Listing, watch: Mapping[str, Any], match: Match, market
         "title": listing.title[:250],
         "url": listing.url,
         "color": COLOR_UNDER_MARKET if match.reason == UNDER_MARKET else COLOR_NEAR_MARKET,
-        "description": f"**{match.label}** — {match.pct_of_market * 100:.0f}% of market",
+        "description": (
+            f"**{match.label}** — {match.pct_of_market * 100:.0f}% of market · {source_name(listing)}"
+        ),
         "fields": [
-            {"name": "Buy It Now", "value": f"${listing.price:,.2f}", "inline": True},
-            {
-                "name": "Shipping",
-                "value": "Free" if listing.shipping == 0 else f"${listing.shipping:,.2f}",
-                "inline": True,
-            },
+            {"name": "Price", "value": f"${listing.price:,.2f}", "inline": True},
+            {"name": "Shipping", "value": shipping_text(listing), "inline": True},
             {"name": "Total", "value": f"${listing.total_price:,.2f}", "inline": True},
             {"name": "TCG market", "value": f"${market_price:,.2f}", "inline": True},
             {"name": "Difference", "value": f"{'+' if delta >= 0 else '-'}${abs(delta):,.2f}", "inline": True},

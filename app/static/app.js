@@ -39,7 +39,8 @@ document.querySelectorAll(".tab").forEach((tab) => {
 
 async function loadHealth() {
   const health = await api("/api/health");
-  const source = health.ebay_source === "browse_api" ? "eBay Browse API" : "eBay HTML scrape";
+  const source = (health.ebay_source === "browse_api" ? "eBay Browse API" : "eBay HTML scrape") +
+    (health.fanatics_enabled ? " + Fanatics Collect" : "");
   const discord = health.discord_configured ? "Discord connected" : "Discord not configured";
   const last = health.monitor.last_run_at
     ? `last sweep ${new Date(health.monitor.last_run_at).toLocaleTimeString()}`
@@ -174,6 +175,10 @@ $("#watch-form").addEventListener("submit", async (event) => {
     const raw = form.querySelector(`[name=${name}]`).value.trim();
     return raw === "" ? null : Number(raw);
   };
+  if (!form.querySelector("[name=search_ebay]").checked && !form.querySelector("[name=search_fanatics]").checked) {
+    alert("Pick at least one marketplace to search.");
+    return;
+  }
   const payload = {
     label: form.querySelector("[name=label]").value.trim(),
     ebay_query: form.querySelector("[name=ebay_query]").value.trim(),
@@ -191,6 +196,8 @@ $("#watch-form").addEventListener("submit", async (event) => {
     max_price: value("max_price"),
     exclude_terms: form.querySelector("[name=exclude_terms]").value.trim(),
     strict_match: form.querySelector("[name=strict_match]").checked,
+    search_ebay: form.querySelector("[name=search_ebay]").checked,
+    search_fanatics: form.querySelector("[name=search_fanatics]").checked,
     active: true,
   };
   await api("/api/watches", { method: "POST", body: JSON.stringify(payload) });
@@ -202,6 +209,14 @@ $("#watch-form").addEventListener("submit", async (event) => {
   await loadWatches();
   await loadHealth();
 });
+
+const SOURCE_NAMES = { ebay: "eBay", fanatics: "Fanatics Collect" };
+
+function sourcesLabel(watch) {
+  return [watch.search_ebay ? "eBay" : null, watch.search_fanatics ? "Fanatics Collect" : null]
+    .filter(Boolean)
+    .join(" + ") || `<span class="tag err">no marketplaces</span>`;
+}
 
 async function loadWatches() {
   const watches = await api("/api/watches");
@@ -220,7 +235,7 @@ async function loadWatches() {
       <div class="grow">
         <div class="title">${watch.label}</div>
         <div class="sub">
-          query: <code>${watch.ebay_query}</code>${watch.product_type === "sealed" ? ` · <span class="tag">Sealed</span>` : ""}${gradeLabel(watch) ? ` · <span class="tag">${gradeLabel(watch)}</span>` : ""}<br>
+          query: <code>${watch.ebay_query}</code>${watch.product_type === "sealed" ? ` · <span class="tag">Sealed</span>` : ""}${gradeLabel(watch) ? ` · <span class="tag">${gradeLabel(watch)}</span>` : ""} · ${sourcesLabel(watch)}<br>
           market ${watch.manual_market_price != null ? money(watch.manual_market_price) : `<span class="tag err">not set</span>`} · alert BIN &le; ${Math.round(watch.bin_max_pct_of_market * 100)}%
           · offer &le; ${Math.round(watch.offer_max_pct_of_market * 100)}%
           · ${watch.alert_count} alerts
@@ -306,14 +321,20 @@ async function loadAlerts() {
       <div class="grow">
         <div class="title"><a href="${alert.url}" target="_blank" rel="noopener">${alert.title}</a></div>
         <div class="sub">
-          ${money(alert.price)} + ${alert.shipping ? money(alert.shipping) : "free"} shipping =
-          <strong>${money(alert.total_price)}</strong> vs market ${money(alert.market_price)}
+          <span class="tag">${SOURCE_NAMES[alert.source] || alert.source}</span>
+          ${alert.source === "ebay"
+            ? `${money(alert.price)} + ${alert.shipping ? money(alert.shipping) : "free"} shipping =
+          <strong>${money(alert.total_price)}</strong>`
+            : `<strong>${money(alert.price)}</strong> (shipping not included)`} vs market ${money(alert.market_price)}
           · ${alert.watch_label} · ${alert.created_at} UTC
           ${alert.notified ? "" : " · <span class=\"tag err\">not sent to Discord</span>"}
         </div>
         ${alert.item_id ? `<div class="sub">
           <a href="https://www.ebay.com/atc/binctr?item=${alert.item_id}&quantity=1" target="_blank" rel="noopener">Buy It Now</a>
           ${alert.best_offer ? `· <a href="https://www.ebay.com/itm/${alert.item_id}?boolp=1" target="_blank" rel="noopener">Make Offer</a>` : ""}
+        </div>` : ""}
+        ${alert.source === "fanatics" ? `<div class="sub">
+          <a href="${alert.url}" target="_blank" rel="noopener">${alert.best_offer ? "Buy / Make Offer" : "Buy Now"} on Fanatics Collect</a>
         </div>` : ""}
       </div>
       <span class="${tag}">${label}</span>`;

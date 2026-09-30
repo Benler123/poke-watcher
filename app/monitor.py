@@ -1,4 +1,4 @@
-"""Background polling loop: search eBay, apply rules, alert on Discord."""
+"""Background polling loop: search eBay and Fanatics Collect, apply rules, alert on Discord."""
 
 import asyncio
 import logging
@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy import func, select
 
-from app import db, ebay, grading, notifier, tcg, watches
+from app import db, ebay, fanatics, grading, notifier, tcg, watches
 from app.config import get_settings
 from app.db import alerts as alerts_table
 from app.db import get_setting, seen_listings, set_setting
@@ -49,10 +49,39 @@ def _age_seconds(value: Any) -> float | None:
     return (datetime.now(timezone.utc) - value).total_seconds()
 
 
-def check_watch(watch: dict[str, Any], client: Any, notify: bool = True) -> list[dict[str, Any]]:
-    # A watch's first sweep only records what is already listed: those listings are
-    # not new, and alerting on all of them floods Discord.
-    seeding = not watch.get("seeded")
+def _record_alert(
+    listing: ebay.Listing, watch: dict[str, Any], match: Any, market: float, notify: bool
+) -> dict[str, Any]:
+    notified = notifier.send_alert(listing, watch, match, market) if notify else False
+    return db.insert_returning(
+        alerts_table,
+        {
+            "watch_id": watch["id"],
+            "listing_id": listing.listing_id,
+            "source": listing.source,
+            "item_id": listing.item_id,
+            "title": listing.title,
+            "url": listing.url,
+            "image_url": listing.image_url,
+            "price": listing.price,
+            "shipping": listing.shipping,
+            "total_price": listing.total_price,
+            "currency": listing.currency,
+            "best_offer": listing.best_offer,
+            "market_price": market,
+            "pct_of_market": match.pct_of_market,
+            "reason": match.reason,
+            "notified": notified,
+        },
+    )
+
+
+def check_watch(
+    watch: dict[str, Any],
+    client: Any,
+    notify: bool = True,
+    fanatics_client: Any = None,
+) -> list[dict[str, Any]]:
     market = watch.get("manual_market_price")
     if not market:
         watches.record_check(watch["id"], "no market price set — use Market price to set one")
@@ -63,53 +92,57 @@ def check_watch(watch: dict[str, Any], client: Any, notify: bool = True) -> list
         float(watch.get("bin_max_pct_of_market") or 1.0),
         float(watch.get("offer_max_pct_of_market") or 1.15),
     )
-    listings = client.search(
-        grading.search_query(watch),
-        limit=get_settings().ebay_search_limit,
-        max_price=ceiling,
-        product_type=watch.get("product_type") or ebay.SINGLE,
-    )
-
     product_id = watch.get("product_id")
     product = tcg.get_product(int(product_id)) if product_id else None
 
-    created: list[dict[str, Any]] = []
-    for listing in listings:
-        match = evaluate(listing, watch, market, product)
-        if match is None:
-            continue
-        if not _is_new_listing(watch["id"], listing.listing_id) or seeding:
-            continue
-        notified = notifier.send_alert(listing, watch, match, market) if notify else False
-        created.append(
-            db.insert_returning(
-                alerts_table,
-                {
-                    "watch_id": watch["id"],
-                    "listing_id": listing.listing_id,
-                    "item_id": listing.item_id,
-                    "title": listing.title,
-                    "url": listing.url,
-                    "image_url": listing.image_url,
-                    "price": listing.price,
-                    "shipping": listing.shipping,
-                    "total_price": listing.total_price,
-                    "currency": listing.currency,
-                    "best_offer": listing.best_offer,
-                    "market_price": market,
-                    "pct_of_market": match.pct_of_market,
-                    "reason": match.reason,
-                    "notified": notified,
-                },
-            )
-        )
+    # (name, client, column recording that this source's first sweep is done)
+    sources: list[tuple[str, Any, str]] = []
+    if watch.get("search_ebay", True):
+        sources.append(("eBay", client, "seeded"))
+    if watch.get("search_fanatics", True) and fanatics_client is not None:
+        sources.append(("Fanatics", fanatics_client, "fanatics_seeded"))
 
-    watches.record_check(watch["id"], None, seeded=True)
+    if not sources:
+        watches.record_check(watch["id"], "no marketplaces selected")
+        return []
+
+    created: list[dict[str, Any]] = []
+    errors: list[str] = []
+    seeded: list[str] = []
+    for name, source, seeded_column in sources:
+        try:
+            listings = source.search(
+                grading.search_query(watch),
+                limit=get_settings().ebay_search_limit,
+                max_price=ceiling,
+                product_type=watch.get("product_type") or ebay.SINGLE,
+            )
+        except Exception as exc:
+            if len(sources) == 1:
+                raise
+            log.exception("%s search failed for watch %s", name, watch["id"])
+            errors.append(f"{name}: {exc}")
+            continue
+
+        # A source's first sweep only records what is already listed: those
+        # listings are not new, and alerting on all of them floods Discord.
+        seeding = not watch.get(seeded_column)
+        for listing in listings:
+            match = evaluate(listing, watch, market, product)
+            if match is None:
+                continue
+            if not _is_new_listing(watch["id"], listing.listing_id) or seeding:
+                continue
+            created.append(_record_alert(listing, watch, match, market, notify))
+        seeded.append(seeded_column)
+
+    watches.record_check(watch["id"], "; ".join(errors)[:300] or None, seeded=seeded)
     return created
 
 
 def run_once(notify: bool = True) -> dict[str, Any]:
     client = ebay.get_client()
+    fanatics_client = fanatics.get_client()
     checked = 0
     alerts: list[dict[str, Any]] = []
     errors: list[str] = []
@@ -118,7 +151,9 @@ def run_once(notify: bool = True) -> dict[str, Any]:
             continue
         checked += 1
         try:
-            alerts.extend(check_watch(watch, client, notify=notify))
+            alerts.extend(
+                check_watch(watch, client, notify=notify, fanatics_client=fanatics_client)
+            )
         except Exception as exc:
             log.exception("watch %s failed", watch["id"])
             errors.append(f"{watch['label']}: {exc}")

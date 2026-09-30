@@ -1,5 +1,6 @@
 """CRUD for watched cards and sealed products."""
 
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import func, select
@@ -24,6 +25,8 @@ FIELDS = (
     "max_price",
     "exclude_terms",
     "strict_match",
+    "search_ebay",
+    "search_fanatics",
     "active",
 )
 
@@ -68,10 +71,10 @@ def record_market_price(watch_id: int, price: float | None) -> None:
     )
 
 
-def record_check(watch_id: int, error: str | None = None, seeded: bool = False) -> None:
+def record_check(watch_id: int, error: str | None = None, seeded: Sequence[str] = ()) -> None:
+    """``seeded`` names the per-source columns whose first sweep just completed."""
     values: dict[str, Any] = {"last_checked_at": func.now(), "last_error": error}
-    if seeded:
-        values["seeded"] = True
+    values.update({column: True for column in seeded})
     db.execute(watches.update().where(watches.c.id == watch_id).values(**values))
 
 
