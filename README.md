@@ -62,12 +62,6 @@ Ladder value, 0% with a FanCash payout) and is set in the same Settings card. A
 watch's **Min profit** drops Buy It Now alerts that net less; Best Offer alerts
 still come through, showing profit at the asking price.
 
-## First check after adding a watch
-
-A watch's first sweep records the listings that already match without alerting —
-they are not new, and there can be dozens of them. Alerts start from the next
-sweep, when a listing appears that was not up when the watch was created.
-
 ## Data sources
 
 - **Listings** — eBay [Browse API](https://developer.ebay.com/api-docs/buy/browse/overview.html),

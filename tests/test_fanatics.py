@@ -108,16 +108,15 @@ def _watch(**overrides):
     )
 
 
-def test_fanatics_watch_seeds_then_alerts_with_profit(app_client, monkeypatch):
+def test_fanatics_watch_alerts_once_with_profit(app_client, monkeypatch):
     monkeypatch.setattr(monitor.notifier, "send_alert", lambda *args: True)
     stub = StubEbay([_fanatics_listing("f1", 1500.0)])
     watch = _watch()
 
-    assert monitor.check_watch(watch, stub, notify=False) == []
-    stub.listings.append(_fanatics_listing("f2", 1500.0))
-    alerts = monitor.check_watch(watches.get_watch(watch["id"]), stub, notify=False)
+    alerts = monitor.check_watch(watch, stub, notify=False)
+    assert monitor.check_watch(watches.get_watch(watch["id"]), stub, notify=False) == []
 
-    assert [(a["listing_id"], a["source"]) for a in alerts] == [("fanatics:f2", "fanatics")]
+    assert [(a["listing_id"], a["source"]) for a in alerts] == [("fanatics:f1", "fanatics")]
     # 2000 resale less the default 6% seller fee, minus the 1500 purchase.
     assert alerts[0]["estimated_profit"] == 380.0
 

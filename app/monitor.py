@@ -103,7 +103,8 @@ def _record_alert(
             "url": listing.url,
             "image_url": listing.image_url,
             "price": listing.price,
-            "shipping": listing.shipping,
+            "shipping": listing.shipping or 0.0,
+            "shipping_unknown": not listing.shipping_known,
             "total_price": listing.total_price,
             "currency": listing.currency,
             "best_offer": listing.best_offer,
@@ -118,9 +119,6 @@ def _record_alert(
 
 def check_watch(watch: dict[str, Any], client: Any, notify: bool = True) -> list[dict[str, Any]]:
     """Search the watch's marketplace with ``client`` and alert on new deals."""
-    # A watch's first sweep only records what is already listed: those listings are
-    # not new, and alerting on all of them floods Discord.
-    seeding = not watch.get("seeded")
     market = watch.get("manual_market_price")
     if not market:
         watches.record_check(watch["id"], "no market price set — use Market price to set one")
@@ -155,11 +153,11 @@ def check_watch(watch: dict[str, Any], client: Any, notify: bool = True) -> list
             continue
         if not flipping:
             match.estimated_profit = None
-        if not _is_new_listing(watch["id"], listing.listing_id) or seeding:
+        if not _is_new_listing(watch["id"], listing.listing_id):
             continue
         created.append(_record_alert(listing, watch, match, market, notify))
 
-    watches.record_check(watch["id"], None, seeded=True)
+    watches.record_check(watch["id"], None)
     return created
 
 

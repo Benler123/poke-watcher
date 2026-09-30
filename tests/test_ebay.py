@@ -1,4 +1,4 @@
-from app.ebay import Listing, numeric_item_id, parse_browse_item
+from app.ebay import Listing, delivery_context, numeric_item_id, parse_browse_item
 
 ITEM = {
     "itemId": "v1|123456789|0",
@@ -24,10 +24,23 @@ def test_parse_browse_item():
     assert listing.seller == "cardshop"
 
 
-def test_parse_browse_item_without_shipping_defaults_to_zero():
-    listing = parse_browse_item({**ITEM, "shippingOptions": []})
+def test_parse_browse_item_without_shipping_cost_is_unquoted_not_free():
+    calculated = [{"shippingCostType": "CALCULATED"}]
+    for options in ([], calculated):
+        listing = parse_browse_item({**ITEM, "shippingOptions": options})
+        assert listing.shipping is None
+        assert listing.shipping_known is False
+        assert listing.total_price == 249.99
+
+
+def test_parse_browse_item_free_shipping():
+    listing = parse_browse_item({**ITEM, "shippingOptions": [{"shippingCost": {"value": "0.00"}}]})
     assert listing.shipping == 0.0
-    assert listing.total_price == 249.99
+    assert listing.shipping_known is True
+
+
+def test_delivery_context_header_is_url_encoded():
+    assert delivery_context("19406") == "contextualLocation=country%3DUS%2Czip%3D19406"
 
 
 def test_auction_listing_is_not_buy_it_now():

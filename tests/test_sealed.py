@@ -39,6 +39,14 @@ def test_search_filters_by_product_type(app_client, monkeypatch):
     assert len(tcg.search_products("prismatic")) == 2
 
 
+def test_search_matches_every_word_across_name_set_and_number(app_client, monkeypatch):
+    _index(monkeypatch)
+
+    for query in ("charizard ex 199", "Charizard 199/165", "prismatic charizard", "Charizard ex - 199/165"):
+        assert [row["product_id"] for row in tcg.search_products(query)] == [1], query
+    assert tcg.search_products("charizard 200") == []
+
+
 def test_search_endpoint_returns_only_sealed(app_client, monkeypatch):
     _index(monkeypatch)
 

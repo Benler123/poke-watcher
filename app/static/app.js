@@ -119,10 +119,10 @@ async function selectCard(card) {
   const form = $("#watch-form");
   form.classList.remove("hidden");
   form.querySelector("[name=label]").value = `${card.name} (${card.group_name})`;
-  form.querySelector("[name=ebay_query]").value = (isSealed()
-    ? card.name
-    : `${card.name}${card.number ? ` ${card.number}` : ""}`
-  ).replace(/\s+/g, " ");
+  const name = card.name.replace(/\s+-\s+/g, " ");
+  const withNumber = !isSealed() && card.number && !name.includes(card.number);
+  form.querySelector("[name=ebay_query]").value =
+    `${name}${withNumber ? ` ${card.number}` : ""}`.replace(/\s+/g, " ").trim();
   if (isSealed() && !form.querySelector("[name=exclude_terms]").value) {
     form.querySelector("[name=exclude_terms]").value = SEALED_EXCLUDES;
   }
@@ -348,11 +348,11 @@ async function loadAlerts(name) {
         <div class="title"><a href="${alert.url}" target="_blank" rel="noopener">${alert.title}</a></div>
         <div class="sub">
           ${alert.source === "ebay"
-            ? `${money(alert.price)} + ${alert.shipping ? money(alert.shipping) : "free"} shipping =
+            ? `${money(alert.price)} + ${alert.shipping_unknown ? "unquoted" : alert.shipping ? money(alert.shipping) : "free"} shipping =
           <strong>${money(alert.total_price)}</strong>`
             : `<strong>${money(alert.price)}</strong> (shipping not included)`} vs ${alert.source === "fanatics" ? "resale" : "market"} ${money(alert.market_price)}
           ${alert.estimated_profit != null ? ` · <span class="tag ${alert.estimated_profit >= 0 ? "good" : "bad"}">est. profit ${signed(alert.estimated_profit)}</span>` : ""}
-          · ${alert.watch_label} · ${alert.created_at} UTC
+          · watch #${alert.watch_id} ${alert.watch_label} · ${alert.created_at} UTC
           ${alert.notified ? "" : " · <span class=\"tag err\">not sent to Discord</span>"}
         </div>
         ${alert.item_id ? `<div class="sub">
@@ -380,6 +380,10 @@ async function loadSettings() {
   $("#notify-endpoint").value = settings.ebay_notification_endpoint || "";
   $("#notify-token").value = settings.ebay_verification_token || "";
   $("#notify-forward").checked = Boolean(settings.forward_deletion_notices);
+  $("#ship-zip").value = settings.ship_to_zip || "";
+  $("#ship-zip-status").textContent = settings.ship_to_zip
+    ? `Shipping is quoted to ${settings.ship_to_zip}.`
+    : "No ZIP set — listings with calculated shipping show it as unquoted.";
   $("#notify-status").textContent =
     settings.ebay_notification_endpoint && settings.ebay_verification_token
       ? "Endpoint ready — register it on developer.ebay.com/my/keys."
@@ -433,6 +437,18 @@ $("#save-notify").addEventListener("click", async () => {
     }),
   });
   loadSettings();
+});
+
+$("#save-zip").addEventListener("click", async () => {
+  try {
+    await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({ ship_to_zip: $("#ship-zip").value.trim() }),
+    });
+    loadSettings();
+  } catch (error) {
+    $("#ship-zip-status").textContent = `Not saved — ${error.message}`;
+  }
 });
 
 $("#gen-token").addEventListener("click", async () => {

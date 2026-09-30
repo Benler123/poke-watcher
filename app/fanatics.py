@@ -83,7 +83,7 @@ def parse_hit(hit: dict[str, Any]) -> Listing | None:
         image_url=image,
         seller=hit.get("certifiedSeller"),
         source=SOURCE,
-        shipping_known=False,
+        shipping=None,
     )
 
 

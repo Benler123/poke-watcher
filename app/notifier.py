@@ -31,8 +31,12 @@ def source_name(listing: Listing) -> str:
 
 def shipping_text(listing: Listing) -> str:
     if not listing.shipping_known:
-        return "Not included"
+        return "Not quoted" if listing.source == "ebay" else "Not included"
     return "Free" if listing.shipping == 0 else f"${listing.shipping:,.2f}"
+
+
+def total_text(listing: Listing) -> str:
+    return f"${listing.total_price:,.2f}" + ("" if listing.shipping_known else " + shipping")
 
 
 def signed(amount: float) -> str:
@@ -67,7 +71,7 @@ def build_embed(listing: Listing, watch: Mapping[str, Any], match: Match, market
         "fields": [
             {"name": "Price", "value": f"${listing.price:,.2f}", "inline": True},
             {"name": "Shipping", "value": shipping_text(listing), "inline": True},
-            {"name": "Total", "value": f"${listing.total_price:,.2f}", "inline": True},
+            {"name": "Total", "value": total_text(listing), "inline": True},
             {"name": "Market", "value": f"${market_price:,.2f}", "inline": True},
             {"name": "Difference", "value": signed(delta), "inline": True},
             *(
@@ -79,7 +83,7 @@ def build_embed(listing: Listing, watch: Mapping[str, Any], match: Match, market
             {"name": "Actions", "value": action_links(listing), "inline": False},
         ],
         "thumbnail": {"url": listing.image_url} if listing.image_url else None,
-        "footer": {"text": f"Watch: {watch.get('label', '')}{grade_suffix}"},
+        "footer": {"text": f"Watch #{watch.get('id', '?')}: {watch.get('label', '')}{grade_suffix}"},
     }
 
 

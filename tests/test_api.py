@@ -39,13 +39,6 @@ def test_watch_lifecycle_and_alerting(app_client, monkeypatch):
     monkeypatch.setattr(monitor.ebay, "get_client", lambda: stub)
     monkeypatch.setattr(monitor.notifier, "send_alert", lambda *args: True)
 
-    # First check only seeds what is already listed.
-    assert app_client.post(f"/api/watches/{watch['id']}/check").json()["alerts"] == []
-
-    stub.listings += [
-        Listing("4", "Charizard ex 199/165 fresh", "https://ebay.com/itm/4", 200.0),
-        Listing("5", "Charizard ex 199/165 fresh offers", "https://ebay.com/itm/5", 270.0, best_offer=True),
-    ]
     result = app_client.post(f"/api/watches/{watch['id']}/check").json()
     reasons = sorted(alert["reason"] for alert in result["alerts"])
     assert reasons == ["offer_near_market", "under_market"]
@@ -74,51 +67,49 @@ def test_graded_watch_searches_and_filters_by_grade(app_client, monkeypatch):
     ).json()
     assert (watch["grade_company"], watch["grade_value"]) == ("PSA", "10")
 
-    stub = StubEbay([])
+    stub = StubEbay(
+        [
+            Listing("1", "Charizard VMAX 020/189 PSA 10", "https://ebay.com/itm/1", 150.0),
+            Listing("2", "Charizard VMAX 020/189 PSA 9", "https://ebay.com/itm/2", 150.0),
+            Listing("3", "Charizard VMAX 020/189 raw NM", "https://ebay.com/itm/3", 150.0),
+        ]
+    )
     monkeypatch.setattr(monitor.ebay, "get_client", lambda: stub)
     monkeypatch.setattr(monitor.notifier, "send_alert", lambda *args: True)
-    app_client.post(f"/api/watches/{watch['id']}/check")
-
-    stub.listings = [
-        Listing("1", "Charizard VMAX 020/189 PSA 10", "https://ebay.com/itm/1", 150.0),
-        Listing("2", "Charizard VMAX 020/189 PSA 9", "https://ebay.com/itm/2", 150.0),
-        Listing("3", "Charizard VMAX 020/189 raw NM", "https://ebay.com/itm/3", 150.0),
-    ]
 
     alerts = app_client.post(f"/api/watches/{watch['id']}/check").json()["alerts"]
     assert [alert["listing_id"] for alert in alerts] == ["1"]
     assert stub.queries[0][0] == "charizard vmax 020/189 PSA 10"
 
 
-def test_first_check_seeds_without_alerting(app_client, monkeypatch):
-    """Listings that predate a watch are recorded, not alerted on."""
+def test_first_check_alerts_on_current_listings_once(app_client, monkeypatch):
     watch = app_client.post(
         "/api/watches",
-        json={
-            "label": "Umbreon VMAX",
-            "ebay_query": "umbreon vmax 215/203",
-            "manual_market_price": 400.0,
-        },
+        json={"label": "Umbreon VMAX", "ebay_query": "umbreon vmax 215/203", "manual_market_price": 400.0},
     ).json()
-
     stub = StubEbay([Listing("1", "Umbreon VMAX 215/203", "https://ebay.com/itm/1", 300.0)])
     monkeypatch.setattr(monitor.ebay, "get_client", lambda: stub)
-    sent: list[str] = []
+    monkeypatch.setattr(monitor.notifier, "send_alert", lambda *args: True)
 
-    def record(listing, *_args):
-        sent.append(listing.listing_id)
-        return True
-
-    monkeypatch.setattr(monitor.notifier, "send_alert", record)
-
+    first = app_client.post(f"/api/watches/{watch['id']}/check").json()["alerts"]
+    assert [alert["listing_id"] for alert in first] == ["1"]
     assert app_client.post(f"/api/watches/{watch['id']}/check").json()["alerts"] == []
-    assert sent == []
 
-    stub.listings += [Listing("2", "Umbreon VMAX 215/203 new", "https://ebay.com/itm/2", 300.0)]
-    alerts = app_client.post(f"/api/watches/{watch['id']}/check").json()["alerts"]
 
-    assert [alert["listing_id"] for alert in alerts] == ["2"]
-    assert sent == ["2"]
+def test_recreated_watch_alerts_on_the_same_listings(app_client, monkeypatch):
+    body = {"label": "Umbreon VMAX", "ebay_query": "umbreon vmax 215/203", "manual_market_price": 400.0}
+    stub = StubEbay([Listing("1", "Umbreon VMAX 215/203", "https://ebay.com/itm/1", 300.0)])
+    monkeypatch.setattr(monitor.ebay, "get_client", lambda: stub)
+    monkeypatch.setattr(monitor.notifier, "send_alert", lambda *args: True)
+
+    first = app_client.post("/api/watches", json=body).json()
+    app_client.post(f"/api/watches/{first['id']}/check")
+    app_client.delete(f"/api/watches/{first['id']}")
+    assert app_client.get("/api/alerts").json() == []
+
+    second = app_client.post("/api/watches", json=body).json()
+    alerts = app_client.post(f"/api/watches/{second['id']}/check").json()["alerts"]
+    assert [(alert["watch_id"], alert["listing_id"]) for alert in alerts] == [(second["id"], "1")]
 
 
 def test_settings_roundtrip(app_client):
@@ -127,6 +118,27 @@ def test_settings_roundtrip(app_client):
     settings = app_client.get("/api/settings").json()
     assert settings["discord_webhook_url"] == url
     assert settings["discord_webhook_set"] is True
+
+
+def test_ship_to_zip_setting(app_client):
+    assert app_client.put("/api/settings", json={"ship_to_zip": "94103"}).json()["ship_to_zip"] == "94103"
+    assert monitor.ebay.ship_to_zip() == "94103"
+    assert app_client.put("/api/settings", json={"ship_to_zip": "9410"}).status_code == 422
+
+
+def test_alert_records_unquoted_shipping(app_client, monkeypatch):
+    watch = app_client.post(
+        "/api/watches",
+        json={"label": "Umbreon VMAX", "ebay_query": "umbreon vmax 215/203", "manual_market_price": 400.0},
+    ).json()
+    stub = StubEbay([Listing("1", "Umbreon VMAX 215/203", "https://ebay.com/itm/1", 300.0, shipping=None)])
+    monkeypatch.setattr(monitor.ebay, "get_client", lambda: stub)
+    monkeypatch.setattr(monitor.notifier, "send_alert", lambda *args: True)
+
+    [alert] = app_client.post(f"/api/watches/{watch['id']}/check").json()["alerts"]
+    assert alert["shipping_unknown"] is True
+    assert alert["shipping"] == 0.0
+    assert alert["total_price"] == 300.0
 
 
 def test_health_reports_sources(app_client):
