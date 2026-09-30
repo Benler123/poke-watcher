@@ -35,6 +35,10 @@ def shipping_text(listing: Listing) -> str:
     return "Free" if listing.shipping == 0 else f"${listing.shipping:,.2f}"
 
 
+def signed(amount: float) -> str:
+    return f"{'+' if amount >= 0 else '-'}${abs(amount):,.2f}"
+
+
 def action_links(listing: Listing) -> str:
     """Markdown links that jump straight into checkout / the offer layer."""
     if listing.source != "ebay":
@@ -64,8 +68,13 @@ def build_embed(listing: Listing, watch: Mapping[str, Any], match: Match, market
             {"name": "Price", "value": f"${listing.price:,.2f}", "inline": True},
             {"name": "Shipping", "value": shipping_text(listing), "inline": True},
             {"name": "Total", "value": f"${listing.total_price:,.2f}", "inline": True},
-            {"name": "TCG market", "value": f"${market_price:,.2f}", "inline": True},
-            {"name": "Difference", "value": f"{'+' if delta >= 0 else '-'}${abs(delta):,.2f}", "inline": True},
+            {"name": "Market", "value": f"${market_price:,.2f}", "inline": True},
+            {"name": "Difference", "value": signed(delta), "inline": True},
+            *(
+                [{"name": "Est. profit", "value": signed(match.estimated_profit), "inline": True}]
+                if match.estimated_profit is not None
+                else []
+            ),
             {"name": "Best Offer", "value": "Yes" if listing.best_offer else "No", "inline": True},
             {"name": "Actions", "value": action_links(listing), "inline": False},
         ],

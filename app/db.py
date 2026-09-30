@@ -62,9 +62,8 @@ watches = Table(
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("last_checked_at", DateTime(timezone=True)),
     Column("seeded", Boolean, nullable=False, server_default=text("false")),
-    Column("search_ebay", Boolean, nullable=False, server_default=text("true")),
-    Column("search_fanatics", Boolean, nullable=False, server_default=text("true")),
-    Column("fanatics_seeded", Boolean, nullable=False, server_default=text("false")),
+    Column("marketplace", Text, nullable=False, server_default="ebay"),
+    Column("min_profit", Float),
     Column("last_error", Text),
 )
 
@@ -94,6 +93,7 @@ alerts = Table(
     Column("best_offer", Boolean, nullable=False, server_default=text("false")),
     Column("market_price", Float, nullable=False),
     Column("pct_of_market", Float, nullable=False),
+    Column("estimated_profit", Float),
     Column("reason", Text, nullable=False),
     Column("notified", Boolean, nullable=False, server_default=text("false")),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),

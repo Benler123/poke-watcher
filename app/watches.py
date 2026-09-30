@@ -1,6 +1,5 @@
 """CRUD for watched cards and sealed products."""
 
-from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import func, select
@@ -25,8 +24,8 @@ FIELDS = (
     "max_price",
     "exclude_terms",
     "strict_match",
-    "search_ebay",
-    "search_fanatics",
+    "marketplace",
+    "min_profit",
     "active",
 )
 
@@ -71,14 +70,16 @@ def record_market_price(watch_id: int, price: float | None) -> None:
     )
 
 
-def record_check(watch_id: int, error: str | None = None, seeded: Sequence[str] = ()) -> None:
-    """``seeded`` names the per-source columns whose first sweep just completed."""
+def record_check(watch_id: int, error: str | None = None, seeded: bool = False) -> None:
     values: dict[str, Any] = {"last_checked_at": func.now(), "last_error": error}
-    values.update({column: True for column in seeded})
+    if seeded:
+        values["seeded"] = True
     db.execute(watches.update().where(watches.c.id == watch_id).values(**values))
 
 
-def list_alerts(limit: int = 100, watch_id: int | None = None) -> list[dict[str, Any]]:
+def list_alerts(
+    limit: int = 100, watch_id: int | None = None, marketplace: str | None = None
+) -> list[dict[str, Any]]:
     statement = (
         select(alerts, watches.c.label.label("watch_label"))
         .join(watches, watches.c.id == alerts.c.watch_id)
@@ -87,4 +88,6 @@ def list_alerts(limit: int = 100, watch_id: int | None = None) -> list[dict[str,
     )
     if watch_id is not None:
         statement = statement.where(alerts.c.watch_id == watch_id)
+    if marketplace is not None:
+        statement = statement.where(watches.c.marketplace == marketplace)
     return db.fetch_all(statement)

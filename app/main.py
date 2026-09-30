@@ -33,7 +33,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 async def lifespan(app: FastAPI):
     init_db()
     tasks = [
-        asyncio.create_task(monitor.poll_forever()),
+        *(asyncio.create_task(monitor.poll_forever(m)) for m in monitor.MARKETPLACES),
         asyncio.create_task(monitor.index_forever()),
     ]
     try:
@@ -44,6 +44,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Poke Watcher", lifespan=lifespan)
+
+
+Marketplace = Literal["ebay", "fanatics"]
 
 
 class WatchIn(BaseModel):
@@ -63,8 +66,8 @@ class WatchIn(BaseModel):
     max_price: float | None = None
     exclude_terms: str = ""
     strict_match: bool = True
-    search_ebay: bool = True
-    search_fanatics: bool = True
+    marketplace: Marketplace = "ebay"
+    min_profit: float | None = None
     active: bool = True
 
 
@@ -81,8 +84,7 @@ class WatchPatch(BaseModel):
     max_price: float | None = None
     exclude_terms: str | None = None
     strict_match: bool | None = None
-    search_ebay: bool | None = None
-    search_fanatics: bool | None = None
+    min_profit: float | None = None
     active: bool | None = None
 
 
@@ -91,6 +93,9 @@ class SettingsIn(BaseModel):
     ebay_verification_token: str | None = None
     ebay_notification_endpoint: str | None = None
     forward_deletion_notices: bool | None = None
+    ebay_poll_interval_seconds: int | None = Field(default=None, ge=monitor.MIN_POLL_SECONDS)
+    fanatics_poll_interval_seconds: int | None = Field(default=None, ge=monitor.MIN_POLL_SECONDS)
+    resale_fee_pct: float | None = Field(default=None, ge=0, le=100)
 
 
 def _normalize_grade(data: dict[str, Any], product_type: str | None) -> dict[str, Any]:
@@ -105,6 +110,10 @@ def _normalize_grade(data: dict[str, Any], product_type: str | None) -> dict[str
     return data
 
 
+def _poll_intervals() -> dict[str, int]:
+    return {marketplace: monitor.poll_interval(marketplace) for marketplace in monitor.MARKETPLACES}
+
+
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     settings = get_settings()
@@ -113,7 +122,8 @@ def health() -> dict[str, Any]:
         "ebay_source": "browse_api" if settings.ebay_configured else "html_scrape",
         "fanatics_enabled": settings.fanatics_enabled,
         "discord_configured": bool(notifier.webhook_url()),
-        "poll_interval_seconds": settings.poll_interval_seconds,
+        "poll_intervals": _poll_intervals(),
+        "resale_fee_pct": monitor.resale_fee_pct(),
         "monitor": monitor.status,
         "stats": monitor.stats(),
     }
@@ -176,22 +186,22 @@ def check_watch_now(watch_id: int) -> dict[str, Any]:
     if watch is None:
         raise HTTPException(status_code=404, detail="watch not found")
     try:
-        alerts = monitor.check_watch(
-            watch, ebay.get_client(), fanatics_client=fanatics.get_client()
-        )
+        alerts = monitor.check_watch(watch, monitor.client_for(watch.get("marketplace") or "ebay"))
     except (ebay.EbayError, fanatics.FanaticsError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"alerts": alerts, "watch": watches.get_watch(watch_id)}
 
 
 @app.get("/api/alerts")
-def get_alerts(limit: int = 100, watch_id: int | None = None) -> list[dict[str, Any]]:
-    return watches.list_alerts(limit=limit, watch_id=watch_id)
+def get_alerts(
+    limit: int = 100, watch_id: int | None = None, marketplace: Marketplace | None = None
+) -> list[dict[str, Any]]:
+    return watches.list_alerts(limit=limit, watch_id=watch_id, marketplace=marketplace)
 
 
 @app.post("/api/monitor/run")
-def run_monitor() -> dict[str, Any]:
-    return monitor.run_once()
+def run_monitor(marketplace: Marketplace | None = None) -> dict[str, Any]:
+    return monitor.run_once(marketplace=marketplace)
 
 
 @app.get("/api/settings")
@@ -200,7 +210,9 @@ def read_settings() -> dict[str, Any]:
     return {
         "discord_webhook_url": url,
         "discord_webhook_set": bool(url),
-        "poll_interval_seconds": get_settings().poll_interval_seconds,
+        "ebay_poll_interval_seconds": monitor.poll_interval(monitor.EBAY),
+        "fanatics_poll_interval_seconds": monitor.poll_interval(monitor.FANATICS),
+        "resale_fee_pct": monitor.resale_fee_pct(),
         "ebay_source": "browse_api" if get_settings().ebay_configured else "html_scrape",
         "ebay_verification_token": ebay_notifications.verification_token(),
         "ebay_notification_endpoint": ebay_notifications.endpoint_url(),
@@ -218,6 +230,12 @@ def write_settings(payload: SettingsIn) -> dict[str, Any]:
         set_setting("ebay_notification_endpoint", payload.ebay_notification_endpoint.strip())
     if payload.forward_deletion_notices is not None:
         set_setting("forward_deletion_notices", "1" if payload.forward_deletion_notices else "0")
+    if payload.ebay_poll_interval_seconds is not None:
+        set_setting("poll_interval_ebay", str(payload.ebay_poll_interval_seconds))
+    if payload.fanatics_poll_interval_seconds is not None:
+        set_setting("poll_interval_fanatics", str(payload.fanatics_poll_interval_seconds))
+    if payload.resale_fee_pct is not None:
+        set_setting(monitor.RESALE_FEE_KEY, str(payload.resale_fee_pct))
     return read_settings()
 
 

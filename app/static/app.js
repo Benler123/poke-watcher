@@ -7,6 +7,12 @@ let selectedCard = null;
 const productType = () =>
   document.querySelector("input[name=product_type]:checked").value;
 const isSealed = () => productType() === "sealed";
+let marketplace = "ebay";
+const flipping = () => marketplace === "fanatics";
+const MARKETPLACES = ["ebay", "fanatics"];
+const SOURCE_NAMES = { ebay: "eBay", fanatics: "Fanatics Collect" };
+const signed = (value) =>
+  value == null ? "—" : `${value < 0 ? "-" : "+"}$${Math.abs(Number(value)).toFixed(2)}`;
 
 const gradeLabel = (watch) => {
   const company = (watch.grade_company || "").toUpperCase();
@@ -32,7 +38,11 @@ document.querySelectorAll(".tab").forEach((tab) => {
     document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
     tab.classList.add("active");
     $(`#${tab.dataset.tab}`).classList.add("active");
-    if (tab.dataset.tab === "alerts") loadAlerts();
+    if (MARKETPLACES.includes(tab.dataset.tab)) {
+      marketplace = tab.dataset.tab;
+      applyMarketplace();
+      loadAlerts(marketplace);
+    }
     if (tab.dataset.tab === "settings") loadSettings();
   });
 });
@@ -42,12 +52,18 @@ async function loadHealth() {
   const source = (health.ebay_source === "browse_api" ? "eBay Browse API" : "eBay HTML scrape") +
     (health.fanatics_enabled ? " + Fanatics Collect" : "");
   const discord = health.discord_configured ? "Discord connected" : "Discord not configured";
-  const last = health.monitor.last_run_at
-    ? `last sweep ${new Date(health.monitor.last_run_at).toLocaleTimeString()}`
-    : "no sweep yet";
+  const sweeps = health.monitor.sweeps || {};
+  const last = MARKETPLACES.map((name) => {
+    const sweep = sweeps[name];
+    const label = SOURCE_NAMES[name];
+    return sweep ? `${label} ${new Date(sweep.last_run_at).toLocaleTimeString()}` : `${label} not yet`;
+  }).join(" · ");
+  MARKETPLACES.forEach((name) => {
+    $(`#interval-${name}`).textContent = `swept every ${health.poll_intervals[name]}s`;
+  });
   $("#status-bar").innerHTML =
     `${source} · ${discord}<br>${health.stats.active_watches} active watches · ` +
-    `${health.stats.alerts} alerts · ${last}`;
+    `${health.stats.alerts} alerts · last sweep: ${last}`;
   $("#health").textContent = JSON.stringify(health, null, 2);
   const indexing = health.monitor.indexing;
   const building = indexing && !indexing.complete;
@@ -124,6 +140,20 @@ $("#card-search").addEventListener("keydown", (event) => {
   if (event.key === "Enter") searchCards();
 });
 
+// The add form is shared: it moves into whichever feature tab is open.
+function applyMarketplace() {
+  $(`#${marketplace} .add-slot`).appendChild($("#add-card"));
+  document
+    .querySelectorAll(".fanatics-only")
+    .forEach((element) => element.classList.toggle("hidden", !flipping()));
+  $("#add-title").textContent = flipping() ? "Add a card to flip" : "Add something to watch";
+  $("#market-label").textContent = flipping() ? "Resale price ($)" : "Market price ($)";
+  document
+    .querySelectorAll(".price-word")
+    .forEach((element) => (element.textContent = flipping() ? "resale" : "market"));
+  applyProductType();
+}
+
 function applyProductType() {
   const sealed = isSealed();
   document
@@ -144,8 +174,9 @@ document
 
 function updateGradeHint() {
   if (isSealed()) {
-    $("#grade-hint").textContent =
-      "Sealed watches search eBay's sealed box/pack/deck/case categories for new listings only.";
+    $("#grade-hint").textContent = flipping()
+      ? ""
+      : "Sealed watches search eBay's sealed box/pack/deck/case categories for new listings only.";
     return;
   }
   const company = $("#grade-company").value;
@@ -156,7 +187,7 @@ function updateGradeHint() {
     return;
   }
   $("#grade-hint").textContent =
-    `Only ${company} ${grade || "(any grade)"} listings alert. Set the market price to what this grade sells for.`;
+    `Only ${company} ${grade || "(any grade)"} listings alert. Set the ${flipping() ? "resale" : "market"} price to what this grade sells for.`;
 }
 
 ["#grade-company", "#grade-value"].forEach((sel) =>
@@ -175,10 +206,6 @@ $("#watch-form").addEventListener("submit", async (event) => {
     const raw = form.querySelector(`[name=${name}]`).value.trim();
     return raw === "" ? null : Number(raw);
   };
-  if (!form.querySelector("[name=search_ebay]").checked && !form.querySelector("[name=search_fanatics]").checked) {
-    alert("Pick at least one marketplace to search.");
-    return;
-  }
   const payload = {
     label: form.querySelector("[name=label]").value.trim(),
     ebay_query: form.querySelector("[name=ebay_query]").value.trim(),
@@ -196,8 +223,8 @@ $("#watch-form").addEventListener("submit", async (event) => {
     max_price: value("max_price"),
     exclude_terms: form.querySelector("[name=exclude_terms]").value.trim(),
     strict_match: form.querySelector("[name=strict_match]").checked,
-    search_ebay: form.querySelector("[name=search_ebay]").checked,
-    search_fanatics: form.querySelector("[name=search_fanatics]").checked,
+    marketplace,
+    min_profit: flipping() ? value("min_profit") : null,
     active: true,
   };
   await api("/api/watches", { method: "POST", body: JSON.stringify(payload) });
@@ -210,18 +237,16 @@ $("#watch-form").addEventListener("submit", async (event) => {
   await loadHealth();
 });
 
-const SOURCE_NAMES = { ebay: "eBay", fanatics: "Fanatics Collect" };
-
-function sourcesLabel(watch) {
-  return [watch.search_ebay ? "eBay" : null, watch.search_fanatics ? "Fanatics Collect" : null]
-    .filter(Boolean)
-    .join(" + ") || `<span class="tag err">no marketplaces</span>`;
-}
-
 async function loadWatches() {
   const watches = await api("/api/watches");
-  $("#watch-count").textContent = watches.length;
-  const container = $("#watch-list");
+  MARKETPLACES.forEach((name) => {
+    const own = watches.filter((watch) => (watch.marketplace || "ebay") === name);
+    $(`#watch-count-${name}`).textContent = own.length;
+    renderWatches($(`#watch-list-${name}`), own);
+  });
+}
+
+function renderWatches(container, watches) {
   container.innerHTML = "";
   if (!watches.length) {
     container.innerHTML = `<div class="empty">Nothing watched yet — search for a card above.</div>`;
@@ -235,9 +260,10 @@ async function loadWatches() {
       <div class="grow">
         <div class="title">${watch.label}</div>
         <div class="sub">
-          query: <code>${watch.ebay_query}</code>${watch.product_type === "sealed" ? ` · <span class="tag">Sealed</span>` : ""}${gradeLabel(watch) ? ` · <span class="tag">${gradeLabel(watch)}</span>` : ""} · ${sourcesLabel(watch)}<br>
-          market ${watch.manual_market_price != null ? money(watch.manual_market_price) : `<span class="tag err">not set</span>`} · alert BIN &le; ${Math.round(watch.bin_max_pct_of_market * 100)}%
+          query: <code>${watch.ebay_query}</code>${watch.product_type === "sealed" ? ` · <span class="tag">Sealed</span>` : ""}${gradeLabel(watch) ? ` · <span class="tag">${gradeLabel(watch)}</span>` : ""}<br>
+          ${watch.marketplace === "fanatics" ? "resale" : "market"} ${watch.manual_market_price != null ? money(watch.manual_market_price) : `<span class="tag err">not set</span>`} · alert BIN &le; ${Math.round(watch.bin_max_pct_of_market * 100)}%
           · offer &le; ${Math.round(watch.offer_max_pct_of_market * 100)}%
+          ${watch.min_profit != null ? ` · min profit ${money(watch.min_profit)}` : ""}
           · ${watch.alert_count} alerts
           ${watch.last_checked_at ? ` · checked ${watch.last_checked_at} UTC` : " · never checked"}
         </div>
@@ -249,7 +275,7 @@ async function loadWatches() {
           <button type="button" class="ghost cancel-price">Cancel</button>
         </div>
       </div>
-      <button class="ghost edit-price">Market price</button>
+      <button class="ghost edit-price">${watch.marketplace === "fanatics" ? "Resale price" : "Market price"}</button>
       <button class="ghost check">Check</button>
       <button class="ghost toggle">${watch.active ? "Pause" : "Resume"}</button>
       <button class="danger remove">Delete</button>`;
@@ -302,9 +328,9 @@ async function loadWatches() {
   });
 }
 
-async function loadAlerts() {
-  const alerts = await api("/api/alerts?limit=100");
-  const container = $("#alert-list");
+async function loadAlerts(name) {
+  const alerts = await api(`/api/alerts?limit=100&marketplace=${name}`);
+  const container = $(`#alert-list-${name}`);
   container.innerHTML = "";
   if (!alerts.length) {
     container.innerHTML = `<div class="empty">No alerts yet.</div>`;
@@ -321,11 +347,11 @@ async function loadAlerts() {
       <div class="grow">
         <div class="title"><a href="${alert.url}" target="_blank" rel="noopener">${alert.title}</a></div>
         <div class="sub">
-          <span class="tag">${SOURCE_NAMES[alert.source] || alert.source}</span>
           ${alert.source === "ebay"
             ? `${money(alert.price)} + ${alert.shipping ? money(alert.shipping) : "free"} shipping =
           <strong>${money(alert.total_price)}</strong>`
-            : `<strong>${money(alert.price)}</strong> (shipping not included)`} vs market ${money(alert.market_price)}
+            : `<strong>${money(alert.price)}</strong> (shipping not included)`} vs ${alert.source === "fanatics" ? "resale" : "market"} ${money(alert.market_price)}
+          ${alert.estimated_profit != null ? ` · <span class="tag ${alert.estimated_profit >= 0 ? "good" : "bad"}">est. profit ${signed(alert.estimated_profit)}</span>` : ""}
           · ${alert.watch_label} · ${alert.created_at} UTC
           ${alert.notified ? "" : " · <span class=\"tag err\">not sent to Discord</span>"}
         </div>
@@ -348,6 +374,9 @@ async function loadSettings() {
   $("#webhook-status").textContent = settings.discord_webhook_set
     ? "Webhook configured."
     : "No webhook set — alerts will only appear in this UI.";
+  $("#ebay-interval").value = settings.ebay_poll_interval_seconds;
+  $("#fanatics-interval").value = settings.fanatics_poll_interval_seconds;
+  $("#resale-fee").value = settings.resale_fee_pct;
   $("#notify-endpoint").value = settings.ebay_notification_endpoint || "";
   $("#notify-token").value = settings.ebay_verification_token || "";
   $("#notify-forward").checked = Boolean(settings.forward_deletion_notices);
@@ -365,6 +394,24 @@ $("#save-webhook").addEventListener("click", async () => {
   });
   loadSettings();
 });
+
+document.querySelectorAll(".save-polling").forEach((button) => button.addEventListener("click", async () => {
+  const status = $("#polling-status");
+  try {
+    await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        ebay_poll_interval_seconds: Number($("#ebay-interval").value),
+        fanatics_poll_interval_seconds: Number($("#fanatics-interval").value),
+        resale_fee_pct: Number($("#resale-fee").value),
+      }),
+    });
+    status.textContent = "Saved.";
+  } catch (error) {
+    status.textContent = `Not saved — ${error.message}`;
+  }
+  loadSettings();
+}));
 
 $("#test-webhook").addEventListener("click", async () => {
   const status = $("#webhook-status");
@@ -403,10 +450,11 @@ $("#build-index").addEventListener("click", async () => {
   }, 3000);
 });
 
-$("#run-now").addEventListener("click", async (event) => {
+document.querySelectorAll(".run-now").forEach((button) => button.addEventListener("click", async (event) => {
+  const name = event.target.dataset.marketplace;
   event.target.textContent = "Checking…";
   try {
-    const result = await api("/api/monitor/run", { method: "POST" });
+    const result = await api(`/api/monitor/run?marketplace=${name}`, { method: "POST" });
     event.target.textContent = `${result.alerts.length} new alerts`;
   } catch (error) {
     event.target.textContent = "Failed";
@@ -415,12 +463,18 @@ $("#run-now").addEventListener("click", async (event) => {
     event.target.textContent = "Check all now";
     loadWatches();
     loadHealth();
+    loadAlerts(name);
   }, 1500);
-});
+}));
 
-$("#refresh-alerts").addEventListener("click", loadAlerts);
+document
+  .querySelectorAll(".refresh-alerts")
+  .forEach((button) =>
+    button.addEventListener("click", () => loadAlerts(button.dataset.marketplace))
+  );
 
-applyProductType();
+applyMarketplace();
+loadAlerts(marketplace);
 loadHealth();
 loadWatches();
 setInterval(loadHealth, 30000);

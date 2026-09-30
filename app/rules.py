@@ -20,6 +20,7 @@ REASON_LABELS = {
 class Match:
     reason: str
     pct_of_market: float
+    estimated_profit: float | None = None
 
     @property
     def label(self) -> str:
@@ -31,16 +32,24 @@ def _excluded(title: str, exclude_terms: str) -> bool:
     return any(term.strip() and term.strip().lower() in lowered for term in exclude_terms.split(","))
 
 
+def estimated_profit(total: float, market_price: float, resale_fee_pct: float = 0.0) -> float:
+    """What reselling at the market price nets after the resale fee, less the purchase."""
+    return round(market_price * (1 - resale_fee_pct / 100) - total, 2)
+
+
 def evaluate(
     listing: Listing,
     watch: Mapping[str, Any],
     market_price: float,
     product: Mapping[str, Any] | None = None,
+    resale_fee_pct: float = 0.0,
 ) -> Match | None:
     """Return a Match when the listing should trigger an alert.
 
     ``product`` is the watch's tcgcsv row, used to confirm the listing is
     actually that card rather than something eBay's fuzzy search dragged in.
+    A watch's ``min_profit`` applies to Buy It Now alerts; Best Offer alerts
+    are about negotiating down, so they report profit at the asking price.
     """
     if market_price <= 0 or not listing.buy_it_now or listing.price <= 0:
         return None
@@ -63,8 +72,12 @@ def evaluate(
     bin_threshold = float(watch.get("bin_max_pct_of_market") or 1.0)
     offer_threshold = float(watch.get("offer_max_pct_of_market") or 1.15)
 
-    if pct <= bin_threshold:
-        return Match(UNDER_MARKET, pct)
+    profit = estimated_profit(total, market_price, resale_fee_pct)
+    min_profit = watch.get("min_profit")
+    clears_profit = min_profit is None or profit >= float(min_profit)
+
+    if pct <= bin_threshold and clears_profit:
+        return Match(UNDER_MARKET, pct, profit)
     if listing.best_offer and pct <= offer_threshold:
-        return Match(OFFER_NEAR_MARKET, pct)
+        return Match(OFFER_NEAR_MARKET, pct, profit)
     return None

@@ -97,7 +97,7 @@ button.ghost { background: transparent; border-color: var(--border); color: var(
 button.danger { background: transparent; border-color: #5b2b3d; color: #ff7a94; font-weight: 500; }
 
 .type-row { display: flex; gap: 16px; margin-bottom: 10px; }
-.type-row label { display: flex; align-items: center; gap: 6px; }
+.type-row label { display: flex; flex-direction: row; align-items: center; gap: 6px; }
 .search-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .search-row input { flex: 1; min-width: 240px; }
 
@@ -171,15 +171,9 @@ label.wide { grid-column: 1 / -1; }
   white-space: nowrap;
 }
 
-.checkbox-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.checkbox-row .checkbox { margin-top: 0; }
+.card-head .hint { margin: 0 12px 0 auto; }
+.tag.good { background: rgba(46, 204, 113, 0.15); color: var(--good); }
+.tag.bad { background: rgba(255, 122, 148, 0.15); color: #ff7a94; }
 
 .tag.warn { background: rgba(245, 196, 81, 0.15); color: var(--warn); }
 .tag.err { background: rgba(255, 122, 148, 0.15); color: #ff7a94; }

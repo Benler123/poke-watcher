@@ -4,6 +4,7 @@ import httpx
 from sqlalchemy import create_engine, inspect, text
 
 from app import db, fanatics, monitor, watches
+from app.db import set_setting
 from app.ebay import Listing
 from app.notifier import build_embed
 from app.rules import UNDER_MARKET, Match
@@ -101,65 +102,110 @@ def _watch(**overrides):
             "ebay_query": "umbreon vmax 215/203",
             "manual_market_price": 2000.0,
             "strict_match": False,
+            "marketplace": "fanatics",
             **overrides,
         }
     )
 
 
-def test_each_source_seeds_its_first_sweep(app_client, monkeypatch):
+def test_fanatics_watch_seeds_then_alerts_with_profit(app_client, monkeypatch):
     monkeypatch.setattr(monitor.notifier, "send_alert", lambda *args: True)
-    ebay_stub = StubEbay([Listing("e1", "Umbreon VMAX 215/203", "https://ebay.com/itm/1", 1500.0)])
-    fanatics_stub = StubEbay([_fanatics_listing("f1", 1500.0)])
-
-    # An existing watch that already seeded eBay, now gaining Fanatics.
+    stub = StubEbay([_fanatics_listing("f1", 1500.0)])
     watch = _watch()
-    watches.record_check(watch["id"], seeded=["seeded"])
-    watch = watches.get_watch(watch["id"])
-    ebay_stub.listings.append(Listing("e2", "Umbreon VMAX 215/203", "https://ebay.com/itm/2", 1500.0))
 
-    alerts = monitor.check_watch(watch, ebay_stub, notify=False, fanatics_client=fanatics_stub)
-    assert [a["listing_id"] for a in alerts] == ["e1", "e2"]  # eBay is live, Fanatics seeds
-    watch = watches.get_watch(watch["id"])
-    assert watch["fanatics_seeded"]
+    assert monitor.check_watch(watch, stub, notify=False) == []
+    stub.listings.append(_fanatics_listing("f2", 1500.0))
+    alerts = monitor.check_watch(watches.get_watch(watch["id"]), stub, notify=False)
 
-    fanatics_stub.listings.append(_fanatics_listing("f2", 1500.0))
-    alerts = monitor.check_watch(watch, ebay_stub, notify=False, fanatics_client=fanatics_stub)
     assert [(a["listing_id"], a["source"]) for a in alerts] == [("fanatics:f2", "fanatics")]
+    # 2000 resale less the default 6% seller fee, minus the 1500 purchase.
+    assert alerts[0]["estimated_profit"] == 380.0
 
 
-def test_fanatics_failure_does_not_block_ebay(app_client):
-    class Broken:
-        def search(self, *args, **kwargs):
-            raise fanatics.FanaticsError("down")
+def test_min_profit_filters_buy_now_alerts(app_client):
+    set_setting(monitor.RESALE_FEE_KEY, "0")
+    stub = StubEbay([])
+    watch = _watch(min_profit=300.0)
+    monitor.check_watch(watch, stub, notify=False)
+    stub.listings.extend([_fanatics_listing("cheap", 1650.0), _fanatics_listing("thin", 1800.0)])
+    alerts = monitor.check_watch(watches.get_watch(watch["id"]), stub, notify=False)
+    # "thin" clears the price threshold but only nets $200; allowOffers makes it an offer alert.
+    assert [(a["listing_id"], a["reason"]) for a in alerts] == [
+        ("fanatics:cheap", "under_market"),
+        ("fanatics:thin", "offer_near_market"),
+    ]
+    assert [a["estimated_profit"] for a in alerts] == [350.0, 200.0]
 
-    watch = _watch()
-    ebay_stub = StubEbay([Listing("e1", "Umbreon VMAX 215/203", "https://ebay.com/itm/1", 1500.0)])
-    monitor.check_watch(watch, ebay_stub, notify=False, fanatics_client=Broken())
 
-    row = watches.get_watch(watch["id"])
-    assert row["seeded"] and not row["fanatics_seeded"]
-    assert "Fanatics: down" in row["last_error"]
-
-
-def test_sources_can_be_switched_off(app_client):
-    class NoSearch:
-        def search(self, *args, **kwargs):
-            raise AssertionError("source is disabled")
-
+def test_sweeps_are_split_by_marketplace(app_client, monkeypatch):
+    ebay_stub = StubEbay([])
     fanatics_stub = StubEbay([])
-    watch = _watch(search_ebay=False)
-    monitor.check_watch(watch, NoSearch(), notify=False, fanatics_client=fanatics_stub)
-    assert fanatics_stub.queries
+    monkeypatch.setattr(
+        monitor, "client_for", lambda name: fanatics_stub if name == "fanatics" else ebay_stub
+    )
+    _watch(label="fanatics one")
+    _watch(label="ebay one", marketplace="ebay")
 
-    none = _watch(search_ebay=False, search_fanatics=False)
-    monitor.check_watch(none, NoSearch(), notify=False, fanatics_client=NoSearch())
-    assert watches.get_watch(none["id"])["last_error"] == "no marketplaces selected"
+    assert monitor.run_once(notify=False, marketplace="fanatics")["checked"] == 1
+    assert len(fanatics_stub.queries) == 1 and not ebay_stub.queries
+    assert set(monitor.status["sweeps"]) >= {"fanatics"}
+
+    assert monitor.run_once(notify=False)["checked"] == 2
+    assert len(fanatics_stub.queries) == 2 and len(ebay_stub.queries) == 1
+
+
+def test_disabled_fanatics_is_reported_on_the_watch(app_client):
+    watch = _watch()
+    assert monitor.check_watch(watch, None, notify=False) == []
+    assert watches.get_watch(watch["id"])["last_error"] == (
+        "Fanatics Collect is switched off on this server"
+    )
+
+
+def test_poll_intervals_and_fee_are_configurable(app_client):
+    settings = app_client.get("/api/settings").json()
+    assert settings["ebay_poll_interval_seconds"] == 300
+    assert settings["fanatics_poll_interval_seconds"] == 60
+    assert settings["resale_fee_pct"] == 6.0
+
+    response = app_client.put(
+        "/api/settings",
+        json={"fanatics_poll_interval_seconds": 20, "resale_fee_pct": 0},
+    )
+    assert response.status_code == 200
+    assert monitor.poll_interval("fanatics") == 20
+    assert monitor.poll_interval("ebay") == 300
+    assert monitor.resale_fee_pct() == 0.0
+    assert app_client.get("/api/health").json()["poll_intervals"] == {"ebay": 300, "fanatics": 20}
+    assert app_client.put("/api/settings", json={"fanatics_poll_interval_seconds": 5}).status_code == 422
+
+
+def test_watch_api_keeps_marketplace(app_client):
+    response = app_client.post(
+        "/api/watches",
+        json={
+            "label": "Umbreon",
+            "ebay_query": "umbreon vmax 215",
+            "manual_market_price": 2000,
+            "marketplace": "fanatics",
+            "min_profit": 250,
+        },
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["marketplace"] == "fanatics" and body["min_profit"] == 250
+    default = app_client.post(
+        "/api/watches",
+        json={"label": "x", "ebay_query": "x", "manual_market_price": 1},
+    ).json()
+    assert default["marketplace"] == "ebay"
 
 
 def test_fanatics_embed_links_to_listing():
     listing = _fanatics_listing("f1", 1500.0)
-    embed = build_embed(listing, {"label": "Umbreon"}, Match(UNDER_MARKET, 0.75), 2000.0)
+    embed = build_embed(listing, {"label": "Umbreon"}, Match(UNDER_MARKET, 0.75, 380.0), 2000.0)
     fields = {field["name"]: field["value"] for field in embed["fields"]}
+    assert fields["Est. profit"] == "+$380.00"
     assert fields["Actions"] == f"[Buy / Make Offer on Fanatics Collect]({listing.url})"
     assert fields["Shipping"] == "Not included"
     assert "Fanatics Collect" in embed["description"]
@@ -182,3 +228,28 @@ def test_migration_adds_text_columns_with_defaults(tmp_path):
     assert "source" in {c["name"] for c in inspect(engine).get_columns("alerts")}
     with engine.connect() as conn:
         assert conn.execute(text("SELECT source FROM alerts")).scalar() == "ebay"
+
+
+def test_ebay_watch_alerts_carry_no_profit(app_client):
+    stub = StubEbay([])
+    watch = _watch(marketplace="ebay")
+    monitor.check_watch(watch, stub, notify=False)
+    stub.listings.append(_fanatics_listing("e1", 1500.0))
+    alerts = monitor.check_watch(watches.get_watch(watch["id"]), stub, notify=False)
+    assert [a["estimated_profit"] for a in alerts] == [None]
+
+
+def test_alerts_and_runs_filter_by_marketplace(app_client, monkeypatch):
+    monkeypatch.setattr(monitor, "client_for", lambda name: StubEbay([]))
+    for name in ("ebay", "fanatics"):
+        watch = _watch(label=name, marketplace=name)
+        stub = StubEbay([])
+        monitor.check_watch(watch, stub, notify=False)
+        stub.listings.append(_fanatics_listing(name, 1500.0))
+        monitor.check_watch(watches.get_watch(watch["id"]), stub, notify=False)
+
+    flips = app_client.get("/api/alerts", params={"marketplace": "fanatics"}).json()
+    assert [a["watch_label"] for a in flips] == ["fanatics"]
+    assert len(app_client.get("/api/alerts").json()) == 2
+    run = app_client.post("/api/monitor/run", params={"marketplace": "ebay"}).json()
+    assert run["checked"] == 1

@@ -1,4 +1,4 @@
-"""Background polling loop: search eBay and Fanatics Collect, apply rules, alert on Discord."""
+"""Background polling loops: sweep eBay and Fanatics Collect watches, alert on Discord."""
 
 import asyncio
 import logging
@@ -26,6 +26,7 @@ status: dict[str, Any] = {
     "last_run_alerts": 0,
     "last_error": None,
     "indexing": None,
+    "sweeps": {},
 }
 
 
@@ -49,6 +50,44 @@ def _age_seconds(value: Any) -> float | None:
     return (datetime.now(timezone.utc) - value).total_seconds()
 
 
+EBAY = "ebay"
+FANATICS = fanatics.SOURCE
+MARKETPLACES = (EBAY, FANATICS)
+MARKETPLACE_NAMES = {EBAY: "eBay", FANATICS: "Fanatics Collect"}
+MIN_POLL_SECONDS = 15
+RESALE_FEE_KEY = "resale_fee_pct"
+
+
+def poll_interval(marketplace: str) -> int:
+    """Seconds between sweeps of one marketplace's watches (Settings, else env default)."""
+    settings = get_settings()
+    default = (
+        settings.fanatics_poll_interval_seconds
+        if marketplace == FANATICS
+        else settings.poll_interval_seconds
+    )
+    try:
+        value = int(get_setting(f"poll_interval_{marketplace}") or default)
+    except ValueError:
+        value = default
+    return max(MIN_POLL_SECONDS, value)
+
+
+def resale_fee_pct() -> float:
+    try:
+        value = float(get_setting(RESALE_FEE_KEY) or get_settings().resale_fee_pct)
+    except ValueError:
+        value = get_settings().resale_fee_pct
+    return min(max(value, 0.0), 100.0)
+
+
+def client_for(marketplace: str) -> Any:
+    """Listing source for a marketplace; None when it is switched off."""
+    if marketplace == FANATICS:
+        return fanatics.get_client()
+    return ebay.get_client()
+
+
 def _record_alert(
     listing: ebay.Listing, watch: dict[str, Any], match: Any, market: float, notify: bool
 ) -> dict[str, Any]:
@@ -70,94 +109,98 @@ def _record_alert(
             "best_offer": listing.best_offer,
             "market_price": market,
             "pct_of_market": match.pct_of_market,
+            "estimated_profit": match.estimated_profit,
             "reason": match.reason,
             "notified": notified,
         },
     )
 
 
-def check_watch(
-    watch: dict[str, Any],
-    client: Any,
-    notify: bool = True,
-    fanatics_client: Any = None,
-) -> list[dict[str, Any]]:
+def check_watch(watch: dict[str, Any], client: Any, notify: bool = True) -> list[dict[str, Any]]:
+    """Search the watch's marketplace with ``client`` and alert on new deals."""
+    # A watch's first sweep only records what is already listed: those listings are
+    # not new, and alerting on all of them floods Discord.
+    seeding = not watch.get("seeded")
     market = watch.get("manual_market_price")
     if not market:
         watches.record_check(watch["id"], "no market price set — use Market price to set one")
         return []
     market = float(market)
+    if client is None:
+        name = MARKETPLACE_NAMES.get(watch.get("marketplace") or EBAY, "marketplace")
+        watches.record_check(watch["id"], f"{name} is switched off on this server")
+        return []
 
     ceiling = market * max(
         float(watch.get("bin_max_pct_of_market") or 1.0),
         float(watch.get("offer_max_pct_of_market") or 1.15),
     )
+    listings = client.search(
+        grading.search_query(watch),
+        limit=get_settings().ebay_search_limit,
+        max_price=ceiling,
+        product_type=watch.get("product_type") or ebay.SINGLE,
+    )
+
     product_id = watch.get("product_id")
     product = tcg.get_product(int(product_id)) if product_id else None
-
-    # (name, client, column recording that this source's first sweep is done)
-    sources: list[tuple[str, Any, str]] = []
-    if watch.get("search_ebay", True):
-        sources.append(("eBay", client, "seeded"))
-    if watch.get("search_fanatics", True) and fanatics_client is not None:
-        sources.append(("Fanatics", fanatics_client, "fanatics_seeded"))
-
-    if not sources:
-        watches.record_check(watch["id"], "no marketplaces selected")
-        return []
+    # Profit estimates belong to the Fanatics flipper; eBay watches compare to market only.
+    flipping = (watch.get("marketplace") or EBAY) == FANATICS
+    fee = resale_fee_pct()
 
     created: list[dict[str, Any]] = []
-    errors: list[str] = []
-    seeded: list[str] = []
-    for name, source, seeded_column in sources:
-        try:
-            listings = source.search(
-                grading.search_query(watch),
-                limit=get_settings().ebay_search_limit,
-                max_price=ceiling,
-                product_type=watch.get("product_type") or ebay.SINGLE,
-            )
-        except Exception as exc:
-            if len(sources) == 1:
-                raise
-            log.exception("%s search failed for watch %s", name, watch["id"])
-            errors.append(f"{name}: {exc}")
+    for listing in listings:
+        match = evaluate(listing, watch, market, product, fee)
+        if match is None:
             continue
+        if not flipping:
+            match.estimated_profit = None
+        if not _is_new_listing(watch["id"], listing.listing_id) or seeding:
+            continue
+        created.append(_record_alert(listing, watch, match, market, notify))
 
-        # A source's first sweep only records what is already listed: those
-        # listings are not new, and alerting on all of them floods Discord.
-        seeding = not watch.get(seeded_column)
-        for listing in listings:
-            match = evaluate(listing, watch, market, product)
-            if match is None:
-                continue
-            if not _is_new_listing(watch["id"], listing.listing_id) or seeding:
-                continue
-            created.append(_record_alert(listing, watch, match, market, notify))
-        seeded.append(seeded_column)
-
-    watches.record_check(watch["id"], "; ".join(errors)[:300] or None, seeded=seeded)
+    watches.record_check(watch["id"], None, seeded=True)
     return created
 
 
-def run_once(notify: bool = True) -> dict[str, Any]:
-    client = ebay.get_client()
-    fanatics_client = fanatics.get_client()
+def _sweep(marketplace: str, notify: bool) -> dict[str, Any]:
+    client: Any = None
+    client_loaded = False
     checked = 0
     alerts: list[dict[str, Any]] = []
     errors: list[str] = []
     for watch in watches.list_watches():
-        if not watch.get("active"):
+        if not watch.get("active") or (watch.get("marketplace") or EBAY) != marketplace:
             continue
         checked += 1
         try:
-            alerts.extend(
-                check_watch(watch, client, notify=notify, fanatics_client=fanatics_client)
-            )
+            if not client_loaded:
+                client, client_loaded = client_for(marketplace), True
+            alerts.extend(check_watch(watch, client, notify=notify))
         except Exception as exc:
             log.exception("watch %s failed", watch["id"])
             errors.append(f"{watch['label']}: {exc}")
             watches.record_check(watch["id"], str(exc)[:300])
+
+    status["sweeps"][marketplace] = {
+        "last_run_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "checked": checked,
+        "alerts": len(alerts),
+        "error": "; ".join(errors) if errors else None,
+    }
+    return {"checked": checked, "alerts": alerts, "errors": errors}
+
+
+def run_once(notify: bool = True, marketplace: str | None = None) -> dict[str, Any]:
+    """Sweep one marketplace's watches, or every marketplace when none is given."""
+    checked = 0
+    alerts: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for name in [marketplace] if marketplace else MARKETPLACES:
+        result = _sweep(name, notify)
+        checked += result["checked"]
+        alerts.extend(result["alerts"])
+        errors.extend(result["errors"])
 
     status.update(
         last_run_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -168,16 +211,16 @@ def run_once(notify: bool = True) -> dict[str, Any]:
     return {"checked": checked, "alerts": alerts, "errors": errors}
 
 
-async def poll_forever() -> None:
-    settings = get_settings()
+async def poll_forever(marketplace: str) -> None:
+    """Sweep one marketplace on its own interval, so Fanatics can run faster than eBay."""
     status["running"] = True
     try:
         while True:
             try:
-                await asyncio.to_thread(run_once)
+                await asyncio.to_thread(run_once, True, marketplace)
             except Exception:
-                log.exception("monitor cycle failed")
-            await asyncio.sleep(settings.poll_interval_seconds)
+                log.exception("%s monitor cycle failed", marketplace)
+            await asyncio.sleep(poll_interval(marketplace))
     finally:
         status["running"] = False
 
