@@ -6,6 +6,8 @@ import pytest
 
 # Keep TestClient startups from building the card index against tcgcsv.com.
 os.environ["INDEX_REFRESH_HOURS"] = "0"
+# Keep checks from searching the live Fanatics Collect marketplace.
+os.environ["FANATICS_ENABLED"] = "false"
 
 
 @pytest.fixture

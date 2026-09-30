@@ -22,8 +22,32 @@ def webhook_url() -> str:
     return get_setting("discord_webhook_url") or get_settings().discord_webhook_url
 
 
+SOURCE_NAMES = {"ebay": "eBay", "fanatics": "Fanatics Collect"}
+
+
+def source_name(listing: Listing) -> str:
+    return SOURCE_NAMES.get(listing.source, listing.source)
+
+
+def shipping_text(listing: Listing) -> str:
+    if not listing.shipping_known:
+        return "Not quoted" if listing.source == "ebay" else "Not included"
+    return "Free" if listing.shipping == 0 else f"${listing.shipping:,.2f}"
+
+
+def total_text(listing: Listing) -> str:
+    return f"${listing.total_price:,.2f}" + ("" if listing.shipping_known else " + shipping")
+
+
+def signed(amount: float) -> str:
+    return f"{'+' if amount >= 0 else '-'}${abs(amount):,.2f}"
+
+
 def action_links(listing: Listing) -> str:
     """Markdown links that jump straight into checkout / the offer layer."""
+    if listing.source != "ebay":
+        verb = "Buy / Make Offer" if listing.best_offer else "Buy Now"
+        return f"[{verb} on {source_name(listing)}]({listing.url})"
     links = []
     if listing.buy_now_url:
         links.append(f"[Buy It Now]({listing.buy_now_url})")
@@ -35,26 +59,26 @@ def action_links(listing: Listing) -> str:
 
 def build_embed(listing: Listing, watch: Mapping[str, Any], match: Match, market_price: float) -> dict[str, Any]:
     delta = listing.total_price - market_price
-    if not listing.shipping_known:
-        shipping = "Not quoted"
-    elif listing.shipping == 0:
-        shipping = "Free"
-    else:
-        shipping = f"${listing.shipping:,.2f}"
-    total = f"${listing.total_price:,.2f}" + ("" if listing.shipping_known else " + shipping")
     grade = grading.describe(watch.get("grade_company"), watch.get("grade_value"))
     grade_suffix = f" · {grade}" if grade else ""
     return {
         "title": listing.title[:250],
         "url": listing.url,
         "color": COLOR_UNDER_MARKET if match.reason == UNDER_MARKET else COLOR_NEAR_MARKET,
-        "description": f"**{match.label}** — {match.pct_of_market * 100:.0f}% of market",
+        "description": (
+            f"**{match.label}** — {match.pct_of_market * 100:.0f}% of market · {source_name(listing)}"
+        ),
         "fields": [
-            {"name": "Buy It Now", "value": f"${listing.price:,.2f}", "inline": True},
-            {"name": "Shipping", "value": shipping, "inline": True},
-            {"name": "Total", "value": total, "inline": True},
+            {"name": "Price", "value": f"${listing.price:,.2f}", "inline": True},
+            {"name": "Shipping", "value": shipping_text(listing), "inline": True},
+            {"name": "Total", "value": total_text(listing), "inline": True},
             {"name": "Market", "value": f"${market_price:,.2f}", "inline": True},
-            {"name": "Difference", "value": f"{'+' if delta >= 0 else '-'}${abs(delta):,.2f}", "inline": True},
+            {"name": "Difference", "value": signed(delta), "inline": True},
+            *(
+                [{"name": "Est. profit", "value": signed(match.estimated_profit), "inline": True}]
+                if match.estimated_profit is not None
+                else []
+            ),
             {"name": "Best Offer", "value": "Yes" if listing.best_offer else "No", "inline": True},
             {"name": "Actions", "value": action_links(listing), "inline": False},
         ],

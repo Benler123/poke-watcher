@@ -61,6 +61,8 @@ watches = Table(
     Column("active", Boolean, nullable=False, server_default=text("true")),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("last_checked_at", DateTime(timezone=True)),
+    Column("marketplace", Text, nullable=False, server_default="ebay"),
+    Column("min_profit", Float),
     Column("last_error", Text),
 )
 
@@ -78,6 +80,7 @@ alerts = Table(
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("watch_id", Integer, ForeignKey("watches.id", ondelete="CASCADE"), nullable=False),
     Column("listing_id", Text, nullable=False),
+    Column("source", Text, nullable=False, server_default="ebay"),
     Column("item_id", Text),
     Column("title", Text, nullable=False),
     Column("url", Text, nullable=False),
@@ -90,6 +93,7 @@ alerts = Table(
     Column("best_offer", Boolean, nullable=False, server_default=text("false")),
     Column("market_price", Float, nullable=False),
     Column("pct_of_market", Float, nullable=False),
+    Column("estimated_profit", Float),
     Column("reason", Text, nullable=False),
     Column("notified", Boolean, nullable=False, server_default=text("false")),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
@@ -230,7 +234,10 @@ def _add_missing_columns(engine: Engine) -> None:
                 ddl = f"ALTER TABLE {table.name} ADD COLUMN {column.name} "
                 ddl += column.type.compile(engine.dialect)
                 if column.server_default is not None:
-                    ddl += f" DEFAULT {column.server_default.arg}"  # type: ignore[union-attr]
+                    default = column.server_default.arg  # type: ignore[union-attr]
+                    if isinstance(default, str):
+                        default = "'" + default.replace("'", "''") + "'"
+                    ddl += f" DEFAULT {default}"
                 conn.execute(text(ddl))
 
 

@@ -27,9 +27,16 @@ class Settings(BaseSettings):
     ebay_verification_token: str = ""
     ebay_notification_endpoint: str = ""
 
+    # Fanatics Collect watches; false turns that marketplace off.
+    fanatics_enabled: bool = True
+
     discord_webhook_url: str = ""
 
+    # Defaults for the per-marketplace sweep intervals; both can be changed in Settings.
     poll_interval_seconds: int = 300
+    fanatics_poll_interval_seconds: int = 60
+    # Default resale fee for profit estimates: Fanatics Buy Now's 6% seller fee.
+    resale_fee_pct: float = 6.0
     # Hours between automatic card index rebuilds; 0 disables automatic builds.
     index_refresh_hours: int = 24
     request_timeout_seconds: float = 30.0

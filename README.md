@@ -47,6 +47,21 @@ copies do not; a raw watch rejects anything that looks slabbed.
 
 Set a graded watch's market price to what that grade sells for.
 
+## eBay and Fanatics Collect watches
+
+Each watch searches one marketplace, picked when adding it, and the watch list
+shows the two separately. Each marketplace is swept on its own interval —
+eBay every 5 minutes and Fanatics every 60 seconds by default (env
+`POLL_INTERVAL_SECONDS` / `FANATICS_POLL_INTERVAL_SECONDS`), both changeable in
+**Settings → Polling & resale** down to 15 seconds.
+
+Alerts carry an estimated flip profit: market price × (1 − resale fee) − total
+price. Set the market price to what you expect to resell for; the resale fee
+defaults to Fanatics Buy Now's 6% seller fee (12% when listed at 120%+ of Card
+Ladder value, 0% with a FanCash payout) and is set in the same Settings card. A
+watch's **Min profit** drops Buy It Now alerts that net less; Best Offer alerts
+still come through, showing profit at the asking price.
+
 ## Data sources
 
 - **Listings** — eBay [Browse API](https://developer.ebay.com/api-docs/buy/browse/overview.html),
@@ -54,6 +69,12 @@ Set a graded watch's market price to what that grade sells for.
   `EBAY_CLIENT_ID` / `EBAY_CLIENT_SECRET` from a production keyset at
   https://developer.ebay.com/my/keys. Without credentials the app falls back to
   parsing eBay search HTML, which eBay blocks from most datacenter IPs.
+- **Fanatics Collect** — live Buy Now listings from the Fanatics Collect
+  marketplace, newest first, limited to its English Pokémon category. It uses
+  the same public search the site does (an anonymous key from its GraphQL API,
+  then its Algolia index), so no account is needed. Fanatics prices exclude
+  shipping, and the alert links to the listing page, where Buy Now and Make
+  Offer live. `FANATICS_ENABLED=false` turns it off.
 - **Prices** — every watch uses a market price you set when adding it; change
   it later via "Market price" in the watch list. No price source is queried.
 - **Card search** — a local index of every Pokémon product from TCGplayer's

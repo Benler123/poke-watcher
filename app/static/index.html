@@ -13,15 +13,17 @@
 </header>
 
 <nav class="tabs">
-  <button class="tab active" data-tab="watchlist">Watchlist</button>
-  <button class="tab" data-tab="alerts">Alerts</button>
+  <button class="tab active" data-tab="ebay">eBay watcher</button>
+  <button class="tab" data-tab="fanatics">Fanatics flipper</button>
   <button class="tab" data-tab="settings">Settings</button>
 </nav>
 
 <main>
-  <section id="watchlist" class="panel active">
-    <div class="card">
-      <h2>Add something to watch</h2>
+  <section id="ebay" class="panel active">
+    <div class="add-slot">
+    <div class="card" id="add-card">
+      <h2 id="add-title">Add something to watch</h2>
+      <p class="hint fanatics-only">Watches Fanatics Collect Buy Now listings and alerts when buying one and relisting at your resale price clears your minimum profit.</p>
       <div class="type-row">
         <label><input type="radio" name="product_type" value="single" checked> Single card</label>
         <label><input type="radio" name="product_type" value="sealed"> Sealed product</label>
@@ -37,7 +39,7 @@
         <div class="selected" id="selected-card"></div>
         <div class="grid">
           <label>Label<input name="label" required></label>
-          <label>eBay search query<input name="ebay_query" required></label>
+          <label>Search query<input name="ebay_query" required></label>
           <label class="grade-field">Grade
             <select name="grade_company" id="grade-company">
               <option value="">Any condition</option>
@@ -51,38 +53,61 @@
             </select>
           </label>
           <label class="grade-field">Grade number<input name="grade_value" id="grade-value" type="number" step="0.5" min="1" max="10" placeholder="10"></label>
-          <label>Market price ($)<input name="manual_market_price" type="number" step="0.01" min="0.01" placeholder="what it sells for" required></label>
-          <label>Alert if BIN total &le; % of market<input name="bin_max_pct_of_market" type="number" step="1" value="100"></label>
-          <label>Alert if Best Offer total &le; % of market<input name="offer_max_pct_of_market" type="number" step="1" value="115"></label>
+          <label><span id="market-label">Market price ($)</span><input name="manual_market_price" type="number" step="0.01" min="0.01" placeholder="what it sells for" required></label>
+          <label class="fanatics-only">Min profit ($)<input name="min_profit" type="number" step="0.01" placeholder="optional"></label>
+          <label>Alert if BIN total &le; % of <span class="price-word">market</span><input name="bin_max_pct_of_market" type="number" step="1" value="100"></label>
+          <label>Alert if Best Offer total &le; % of <span class="price-word">market</span><input name="offer_max_pct_of_market" type="number" step="1" value="115"></label>
           <label>Min total ($)<input name="min_price" type="number" step="0.01" placeholder="ignore junk lots"></label>
           <label>Max total ($)<input name="max_price" type="number" step="0.01" placeholder="optional"></label>
           <label class="wide">Exclude titles containing (comma separated)<input name="exclude_terms" placeholder="proxy, custom, lot, jumbo"></label>
           <label class="wide checkbox"><input name="strict_match" type="checkbox" checked> Strict title check — require the card name plus its number or set, and skip non-English listings, lots and proxies</label>
         </div>
         <p class="hint" id="grade-hint"></p>
+        <p class="hint fanatics-only">Est. profit = resale price &times; (1 &minus; resale fee) &minus; Buy Now price. Min profit filters Buy Now alerts; Best Offer alerts still come through, showing profit at the asking price.</p>
         <div class="actions">
           <button type="submit">Add to watchlist</button>
           <button type="button" id="cancel-watch" class="ghost">Cancel</button>
         </div>
       </form>
     </div>
+    </div>
 
     <div class="card">
       <div class="card-head">
-        <h2>Watching <span id="watch-count" class="pill">0</span></h2>
-        <button id="run-now" class="ghost">Check all now</button>
+        <h2>Watching <span id="watch-count-ebay" class="pill">0</span></h2>
+        <span class="hint" id="interval-ebay"></span>
+        <button class="ghost run-now" data-marketplace="ebay">Check all now</button>
       </div>
-      <div id="watch-list"></div>
+      <div id="watch-list-ebay"></div>
     </div>
-  </section>
 
-  <section id="alerts" class="panel">
     <div class="card">
       <div class="card-head">
         <h2>Alerts</h2>
-        <button id="refresh-alerts" class="ghost">Refresh</button>
+        <button class="ghost refresh-alerts" data-marketplace="ebay">Refresh</button>
       </div>
-      <div id="alert-list"></div>
+      <div id="alert-list-ebay"></div>
+    </div>
+  </section>
+
+  <section id="fanatics" class="panel">
+    <div class="add-slot"></div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Flipping <span id="watch-count-fanatics" class="pill">0</span></h2>
+        <span class="hint" id="interval-fanatics"></span>
+        <button class="ghost run-now" data-marketplace="fanatics">Check all now</button>
+      </div>
+      <div id="watch-list-fanatics"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Flip alerts</h2>
+        <button class="ghost refresh-alerts" data-marketplace="fanatics">Refresh</button>
+      </div>
+      <div id="alert-list-fanatics"></div>
     </div>
   </section>
 
@@ -96,6 +121,24 @@
         <button id="test-webhook" class="ghost">Send test</button>
       </div>
       <p class="hint" id="webhook-status"></p>
+    </div>
+    <div class="card">
+      <h2>eBay watcher</h2>
+      <div class="grid">
+        <label>Sweep every (seconds)<input id="ebay-interval" type="number" min="15" step="1"></label>
+      </div>
+      <div class="actions"><button class="save-polling">Save</button></div>
+    </div>
+    <div class="card">
+      <h2>Fanatics flipper</h2>
+      <p class="hint">Fanatics Buy Now charges sellers 6% when listed under 120% of Card Ladder value, 12% at or above it, and 0% with a FanCash payout. The resale fee comes off the resale price when estimating profit.</p>
+      <div class="grid">
+        <label>Sweep every (seconds)<input id="fanatics-interval" type="number" min="15" step="1"></label>
+        <label>Resale fee (%)<input id="resale-fee" type="number" min="0" max="100" step="0.1"></label>
+      </div>
+      <div class="actions"><button class="save-polling">Save</button></div>
+      <p class="hint">Intervals are 15 seconds minimum; a change applies after the current wait.</p>
+      <p class="hint" id="polling-status"></p>
     </div>
     <div class="card">
       <h2>Shipping ZIP</h2>

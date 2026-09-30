@@ -24,6 +24,8 @@ FIELDS = (
     "max_price",
     "exclude_terms",
     "strict_match",
+    "marketplace",
+    "min_profit",
     "active",
 )
 
@@ -76,7 +78,9 @@ def record_check(watch_id: int, error: str | None = None) -> None:
     )
 
 
-def list_alerts(limit: int = 100, watch_id: int | None = None) -> list[dict[str, Any]]:
+def list_alerts(
+    limit: int = 100, watch_id: int | None = None, marketplace: str | None = None
+) -> list[dict[str, Any]]:
     statement = (
         select(alerts, watches.c.label.label("watch_label"))
         .join(watches, watches.c.id == alerts.c.watch_id)
@@ -85,4 +89,6 @@ def list_alerts(limit: int = 100, watch_id: int | None = None) -> list[dict[str,
     )
     if watch_id is not None:
         statement = statement.where(alerts.c.watch_id == watch_id)
+    if marketplace is not None:
+        statement = statement.where(watches.c.marketplace == marketplace)
     return db.fetch_all(statement)
